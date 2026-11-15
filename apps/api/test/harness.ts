@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { eq } from 'drizzle-orm';
-import { hashPassword, users, type Db } from '@app/db';
+import { hashPassword, seedDatabase, users, type Db } from '@app/db';
 import { createTestDb, type TestDb } from '@app/db/testing';
 import type { Role } from '@app/shared';
 import { createApp, type CreatedApp } from '../src/app';
@@ -182,6 +182,8 @@ const spawnServer = async (
 };
 
 export type StartOptions = {
+  /** Load the full reference seed (20 tables, 60 dishes, 60 days of history) instead of 4 bare users. */
+  fullSeed?: boolean;
   /** Run the server in a separate OS process (needed for honest latency measurements). */
   separateProcess?: boolean;
 };
@@ -193,10 +195,17 @@ export const startTestApp = async (
   prepare?: (db: Db) => Promise<void>,
 ): Promise<TestApp> => {
   const testDb = await createTestDb({ max: 15 });
-  await insertUser(testDb.db, 'waiter1', PASSWORDS.waiter1, 'waiter');
-  await insertUser(testDb.db, 'waiter2', PASSWORDS.waiter2, 'waiter');
-  await insertUser(testDb.db, 'cook1', PASSWORDS.cook1, 'cook');
-  await insertUser(testDb.db, 'manager', PASSWORDS.manager, 'manager');
+  if (options.fullSeed) {
+    await seedDatabase(testDb.db, {
+      tz: 'Europe/Kyiv',
+      passwords: { waiter: PASSWORDS.waiter1, cook: PASSWORDS.cook1, manager: PASSWORDS.manager },
+    });
+  } else {
+    await insertUser(testDb.db, 'waiter1', PASSWORDS.waiter1, 'waiter');
+    await insertUser(testDb.db, 'waiter2', PASSWORDS.waiter2, 'waiter');
+    await insertUser(testDb.db, 'cook1', PASSWORDS.cook1, 'cook');
+    await insertUser(testDb.db, 'manager', PASSWORDS.manager, 'manager');
+  }
   if (prepare) await prepare(testDb.db);
 
   const envInput = {

@@ -12,5 +12,6 @@ export const AppEvent = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('stoplist.changed'), dishId: id, stopListed: z.boolean() }),
   z.object({ type: z.literal('table.changed'), tableId: id }),
+  z.object({ type: z.literal('menu.changed') }),
 ]);
 export type AppEvent = z.infer<typeof AppEvent>;

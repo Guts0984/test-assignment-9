@@ -8,6 +8,17 @@ import { ConfigModule } from './config.module';
 import { ValidationInterceptor } from './common/validation.interceptor';
 import { DbModule } from './db/db.module';
 import type { Env } from './env';
+import { EventsController } from './events/events.controller';
+import { EventsService } from './events/events.service';
+import { KitchenController } from './kitchen/kitchen.controller';
+import { KitchenService } from './kitchen/kitchen.service';
+import { MenuController } from './menu/menu.controller';
+import { MenuService } from './menu/menu.service';
+import { OrdersController } from './orders/orders.controller';
+import { OrdersService } from './orders/orders.service';
+import { ReportsController } from './reports/reports.controller';
+import { TablesController } from './tables/tables.controller';
+import { TablesService } from './tables/tables.service';
 import { HealthController } from './health/health.controller';
 import type { Limiters } from './rate-limit/limiters';
 
@@ -17,9 +28,23 @@ export class AppModule {
     return {
       module: AppModule,
       imports: [ConfigModule.forRoot(env, limiters), DiscoveryModule, DbModule],
-      controllers: [AuthController, HealthController],
+      controllers: [
+        AuthController,
+        HealthController,
+        MenuController,
+        TablesController,
+        OrdersController,
+        KitchenController,
+        EventsController,
+        ReportsController,
+      ],
       providers: [
         AuthService,
+        EventsService,
+        MenuService,
+        TablesService,
+        OrdersService,
+        KitchenService,
         { provide: APP_GUARD, useClass: AccessGuard },
         { provide: APP_INTERCEPTOR, useClass: ValidationInterceptor },
         { provide: APP_FILTER, useClass: AllExceptionsFilter },

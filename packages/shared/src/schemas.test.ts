@@ -126,6 +126,27 @@ describe('menu schemas', () => {
       false,
     );
   });
+  it('price and surcharge are capped so they fit the database and every sum', () => {
+    expect(ok(DishCreate.safeParse(dish({ price: LIMITS.maxPrice })))).toBe(true);
+    expect(ok(DishCreate.safeParse(dish({ price: LIMITS.maxPrice + 1 })))).toBe(false);
+    expect(ok(DishCreate.safeParse(dish({ price: 2 ** 31 })))).toBe(false);
+    expect(
+      ok(
+        DishCreate.safeParse(
+          dish({
+            modifierGroups: [
+              group({
+                modifiers: [
+                  { name: 'x', surcharge: LIMITS.maxPrice + 1 },
+                  { name: 'y', surcharge: 0 },
+                ],
+              }),
+            ],
+          }),
+        ),
+      ),
+    ).toBe(false);
+  });
   it('rejects negative/float/oversized price, stock and surcharge', () => {
     expect(ok(DishCreate.safeParse(dish({ price: -1 })))).toBe(false);
     expect(ok(DishCreate.safeParse(dish({ price: 10.5 })))).toBe(false);

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { LIMITS, id, kopecks, text } from './primitives';
+import { LIMITS, id, kopecks, price, text } from './primitives';
 import { Station } from './enums';
 
-export const ModifierInput = z.object({ name: text(), surcharge: kopecks }).strict();
+export const ModifierInput = z.object({ name: text(), surcharge: price }).strict();
 
 /** Pick between `min` and `max` modifiers of a group. "Exactly 1" is min=1,max=1; "0–3" is min=0,max=3. */
 export const ModifierGroupInput = z
@@ -30,7 +30,7 @@ export const ModifierGroupInput = z
 const dishFields = {
   name: text(),
   category: text(),
-  price: kopecks,
+  price,
   station: Station,
   stock: z.number().int().min(0).max(LIMITS.maxStock).nullable(),
   modifierGroups: z.array(ModifierGroupInput).max(LIMITS.maxModifierGroups),
@@ -74,3 +74,9 @@ export type Dish = z.infer<typeof Dish>;
 
 export const MenuResponse = z.object({ dishes: z.array(Dish) });
 export type MenuResponse = z.infer<typeof MenuResponse>;
+
+export const MenuQuery = z
+  .object({ includeArchived: z.enum(['true', 'false']).default('false') })
+  .strict()
+  .transform((q) => ({ includeArchived: q.includeArchived === 'true' }));
+export type MenuQuery = z.infer<typeof MenuQuery>;

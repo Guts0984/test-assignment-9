@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LIMITS, id, kopecks, text, version } from './primitives';
 import { PaymentMethod } from './enums';
+import { Order, Payment } from './orders';
 
 /** Equal split into N parts, or one part per guest. */
 export const SplitBody = z.discriminatedUnion('mode', [
@@ -63,3 +64,7 @@ export const PaymentBody = z
     }
   });
 export type PaymentBody = z.infer<typeof PaymentBody>;
+
+/** `replayed: true` means this payment id was already processed; nothing new was recorded. */
+export const PaymentResult = z.object({ order: Order, payment: Payment, replayed: z.boolean() });
+export type PaymentResult = z.infer<typeof PaymentResult>;

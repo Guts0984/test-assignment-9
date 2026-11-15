@@ -2,13 +2,6 @@ import { and, eq, isNull, or, gte, sql } from 'drizzle-orm';
 import type { Queryable } from './client';
 import { dishes, orderCounters } from './schema';
 
-/**
- * Next check number for a business day: 1, 2, 3 … without gaps or repeats.
- *
- * Must run inside the SAME transaction that inserts the order. The upsert takes a row lock on the
- * day's counter until commit, so concurrent openers queue up; if the transaction rolls back, the
- * increment rolls back with it and the number is handed out again (no gaps).
- */
 export const nextOrderNumber = async (tx: Queryable, day: string): Promise<number> => {
   const [row] = await tx
     .insert(orderCounters)

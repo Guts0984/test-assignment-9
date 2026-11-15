@@ -23,3 +23,6 @@ export type KitchenItem = z.infer<typeof KitchenItem>;
 
 export const KitchenResponse = z.object({ items: z.array(KitchenItem) });
 export type KitchenResponse = z.infer<typeof KitchenResponse>;
+
+export const KitchenQuery = z.object({ station: Station.optional() }).strict();
+export type KitchenQuery = z.infer<typeof KitchenQuery>;

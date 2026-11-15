@@ -2,8 +2,15 @@ import { z } from 'zod';
 
 /** Hard limits shared by server validation and web forms. */
 export const LIMITS = {
-  /** 100 000 000,00 — keeps every sum far below Number.MAX_SAFE_INTEGER. */
-  maxKopecks: 10_000_000_000,
+  /**
+   * Largest single amount (payment, tendered cash): 20 000 000,00. Must stay below 2^31 - 1 because
+   * money columns are Postgres `integer`.
+   */
+  maxKopecks: 2_000_000_000,
+  /** Largest dish price or modifier surcharge: 100 000,00. Keeps item prices (price + up to 40 surcharges) in `integer`. */
+  maxPrice: 10_000_000,
+  /** A check's subtotal may not exceed this, so subtotal + service fee always fits in `integer`. */
+  maxSubtotal: 1_800_000_000,
   maxGuests: 50,
   maxNameLength: 80,
   maxCommentLength: 200,
@@ -23,6 +30,9 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 
 /** Integer number of kopecks, 0 … maxKopecks. Floats, NaN, Infinity, negatives are rejected. */
 export const kopecks = z.number().int().min(0).max(LIMITS.maxKopecks);
+
+/** A dish price or modifier surcharge in kopecks. */
+export const price = kopecks.max(LIMITS.maxPrice);
 
 /** Entity id (UUID). */
 export const id = z.string().uuid();
