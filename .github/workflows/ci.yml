@@ -34,3 +34,15 @@ jobs:
       - run: pnpm format
       - run: pnpm typecheck
       - run: pnpm test
+
+  # Black-box tests of the real stack: postgres + db-init + api + nginx, attacked from inside the
+  # compose network with several source addresses.
+  stack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose up -d --build --wait nginx
+      - run: docker compose --profile test run --rm --build stack-tests
+      - if: failure()
+        run: docker compose logs --no-color --tail=200

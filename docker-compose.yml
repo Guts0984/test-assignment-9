@@ -48,7 +48,8 @@ services:
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       WEB_ORIGINS: ${WEB_ORIGINS:-http://localhost:8080,http://localhost:3000}
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Only nginx (fixed address below) may set the client IP via X-Forwarded-For.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.30.0.10}
       BODY_LIMIT_KB: ${BODY_LIMIT_KB:-64}
       LOG_LEVEL: ${LOG_LEVEL:-log}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -66,9 +67,48 @@ services:
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
+    # Not published: the only way in is nginx.
+    expose:
+      - '4000'
+
+  nginx:
+    build:
+      context: .
+      dockerfile: infra/nginx/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
-      # Published for local use until nginx fronts it (infra layer).
-      - '127.0.0.1:${API_PORT:-4000}:${API_PORT:-4000}'
+      - '${HTTP_PORT:-8080}:80'
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+
+  # Black-box tests against the whole stack, run from INSIDE the compose network with several
+  # source addresses (so nginx and the API see genuinely different clients):
+  #   docker compose --profile test run --rm stack-tests
+  stack-tests:
+    profiles: ['test']
+    build:
+      context: .
+      dockerfile: infra/stack-tests/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    environment:
+      STACK_URL: http://nginx
+      SEED_WAITER_PASSWORD: ${SEED_WAITER_PASSWORD}
+      SEED_COOK_PASSWORD: ${SEED_COOK_PASSWORD}
+      SEED_MANAGER_PASSWORD: ${SEED_MANAGER_PASSWORD}
+    depends_on:
+      nginx:
+        condition: service_healthy
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   pgdata:
