@@ -46,3 +46,26 @@ jobs:
       - run: docker compose --profile test run --rm --build stack-tests
       - if: failure()
         run: docker compose logs --no-color --tail=200
+
+  # Browser tests against the whole stack, exactly as `docker compose up` runs it.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose up -d --build --wait nginx
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @app/e2e exec playwright install --with-deps chromium
+      - run: pnpm --filter @app/e2e test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: e2e/test-results
+      - if: failure()
+        run: docker compose logs --no-color --tail=200
