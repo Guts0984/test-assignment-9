@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { addDish, asRole, fetchOrder, openCheck, sendToKitchen } from './helpers';
+import { addDish, asRole, fetchOrder, kitchenFinishes, openCheck, sendToKitchen } from './helpers';
 
 test('7 guests: split into 3, service fee included, the parts add up to the kopeck, three payments close the check', async ({
   browser,
@@ -18,6 +18,7 @@ test('7 guests: split into 3, service fee included, the parts add up to the kope
       await dialog.getByLabel('Guest').selectOption('3'); // 50,00
     });
     await sendToKitchen(waiter.page);
+    await kitchenFinishes(browser, waiter);
 
     // 220,00 + 10% service fee (7 guests) = 242,00; on screen the same as on the server.
     await expect(waiter.page.getByTestId('subtotal')).toHaveText('₴220.00');
@@ -73,6 +74,7 @@ test('double click on "Record payment" records exactly one payment', async ({ br
     const id = await openCheck(waiter.page, 2);
     await addDish(waiter.page, 'Cheesecake');
     await sendToKitchen(waiter.page);
+    await kitchenFinishes(browser, waiter);
     await waiter.page.getByRole('button', { name: 'Pay', exact: true }).click();
     const dialog = waiter.page.getByRole('dialog');
     await dialog.getByText('Card (confirmed on the terminal)').click();
@@ -94,6 +96,7 @@ test('payment survives a dropped connection: one payment even though the first r
     const id = await openCheck(waiter.page, 2);
     await addDish(waiter.page, 'Cheesecake');
     await sendToKitchen(waiter.page);
+    await kitchenFinishes(browser, waiter);
     await waiter.page.getByRole('button', { name: 'Pay', exact: true }).click();
 
     // First attempt: the request reaches the server, but the browser never gets the answer.

@@ -15,6 +15,7 @@ import {
   stockOf,
   type Client,
   type Session,
+  makeReady,
 } from './world';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -143,7 +144,7 @@ describe('payments under concurrency', () => {
   const sentCheck = async (): Promise<Order> => {
     let o = await open(s.waiter1, takeTable(), 2);
     o = await add(s.waiter1, o, s.world.soup.id);
-    return send(s.waiter1, o);
+    return makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
   };
 
   it('double click (2, 5 and 25 identical requests at once): exactly one payment', async () => {

@@ -254,6 +254,7 @@
     "INTERNAL": "The server had a problem. Please try again.",
     "NETWORK": "Cannot reach the server. Check the connection.",
     "ORDER_PARTIALLY_PAID": "Part of this check is already paid, so sent items can no longer be cancelled.",
-    "NOT_EMPTY": "This check has items to bill. Pay it instead."
+    "NOT_EMPTY": "This check has items to bill. Pay it instead.",
+    "ITEMS_IN_PROGRESS": "Some items are still being prepared. Take payment when they are ready."
   }
 }

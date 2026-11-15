@@ -252,17 +252,6 @@ export class OrdersService {
           .delete(orderItems)
           .where(and(eq(orderItems.id, itemId), eq(orderItems.status, 'draft')));
       } else if (item.status === 'sent') {
-        // Once money has been taken the total must never drop below what was paid: refuse.
-        const [paid] = await tx
-          .select({ n: sql<number>`count(*)::int` })
-          .from(payments)
-          .where(eq(payments.orderId, orderId));
-        if ((paid?.n ?? 0) > 0) {
-          throw conflict(
-            'Part of this check is already paid; items that were sent can no longer be cancelled',
-            'ORDER_PARTIALLY_PAID',
-          );
-        }
         // Compare-and-set on the status: if the cook starts this item at the same moment, exactly one
         // of the two wins. The loser gets a 409 and nothing (stock included) changes.
         const cancelled = await tx
@@ -274,6 +263,15 @@ export class OrdersService {
           throw conflict(
             'The kitchen has just started this item; it can no longer be cancelled',
             'INVALID_TRANSITION',
+          );
+        }
+        // The total must never drop below what has been paid. (Payment is only accepted once nothing is
+        // being prepared, so this cannot happen through the API today; it guards the invariant itself.)
+        const after = await requireOrder(tx, orderId);
+        if (after.paidAmount > after.total) {
+          throw conflict(
+            'Part of this check is already paid; this item can no longer be cancelled',
+            'ORDER_PARTIALLY_PAID',
           );
         }
         const back = await returnStock(tx, item.dishId, 1);
@@ -403,8 +401,14 @@ export class OrdersService {
       assertOwner(user, head);
       await bumpVersion(tx, orderId, expectedVersion);
       const current = await requireOrder(tx, orderId);
-      const totals = orderTotals(current.items, current.guests);
-      if (totals.total > 0 || current.payments.length > 0) {
+      // Only a check that holds nothing but drafts and cancelled items may be closed: a sent free dish
+      // (price 0) is still food the kitchen has to make.
+      const live = current.items.some((i) => i.status !== 'draft' && i.status !== 'cancelled');
+      if (
+        live ||
+        orderTotals(current.items, current.guests).total > 0 ||
+        current.payments.length > 0
+      ) {
         throw conflict('This check has items to bill; pay it instead', 'NOT_EMPTY');
       }
       await tx
@@ -517,6 +521,14 @@ export class OrdersService {
 
       if (current.items.some((i) => i.status === 'draft')) {
         throw conflict('Send or remove the draft items before paying');
+      }
+      // A paid check is frozen, so the food must not still be on its way: otherwise it would vanish from
+      // the kitchen screen and never reach the guest. (Ready or served items are fine.)
+      if (current.items.some((i) => i.status === 'sent' || i.status === 'cooking')) {
+        throw conflict(
+          'Some items are still being prepared; take payment when they are ready',
+          'ITEMS_IN_PROGRESS',
+        );
       }
       const totals = orderTotals(current.items, current.guests);
       if (totals.total === 0) throw conflict('There is nothing to pay');

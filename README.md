@@ -128,7 +128,7 @@ used by the API and by the web app, so the total on the screen is computed by th
   using the **largest-remainder method** (ties go to the lower guest number), so the parts again add up to the total exactly.
   (`amount × weight` can exceed 2^53, so that step uses `BigInt`.)
 - **Change** (cash) = tendered − amount, stored with the payment. Cards are recorded by hand (no terminal integration).
-- A check is `paid` when the sum of its payments equals the total; several payments are allowed. Overpaying is refused, and once any money has been taken an already-sent item can no longer be cancelled (`409 ORDER_PARTIALLY_PAID`), so the total can never drop below what was paid.
+- A check is `paid` when the sum of its payments equals the total; several payments are allowed. Overpaying is refused, and a cancellation that would put the total below what was already paid is refused (`409 ORDER_PARTIALLY_PAID`).
 - Limits (so that every value fits Postgres `integer`): price/surcharge ≤ 100 000,00; payment/tender ≤ 20 000 000,00; a
   check's subtotal ≤ 18 000 000,00. Beyond that the API answers 400/422, never 500.
 
@@ -169,7 +169,7 @@ amount. The UI marks parts as paid by comparing the running sum of parts with wh
 `orders.version` is an optimistic lock. Every mutating call (`items`, `send`, `payments`, item `DELETE`) must carry
 `expectedVersion` and runs `UPDATE orders SET version = version + 1 WHERE id = $1 AND version = $2 AND status = 'open'`.
 The statement also takes the row lock, so it serialises with everything else that touches the same check. Zero rows →
-`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable: item changes, serving, and the cook's transitions are all refused with `409 ORDER_PAID`, and paid checks disappear from the kitchen queue. The web app queues mutations of one check
+`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable: item changes, serving, and the cook's transitions are all refused with `409 ORDER_PAID`. The payment rule keeps this safe for the kitchen: a check is only paid once **nothing is still being prepared** (every item is ready or served, otherwise `409 ITEMS_IN_PROGRESS`), so food never vanishes from the kitchen screen or is left undelivered because the table was settled early. (The price: a guest cannot settle before the food is ready.) The web app queues mutations of one check
 (TanStack Query `scope`) so that rapid clicks do not conflict with themselves, and after a conflict reloads the check
 and shows a notice.
 
@@ -234,7 +234,7 @@ nginx does not buffer the stream. Logging out closes that session's open streams
 - A check with **nothing to bill** (opened by mistake, or every item cancelled) is closed with `POST /orders/:id/close`, which frees
   the table; it counts as neither a sale nor a report row. There is no "void" for a check that already has billable items or payments.
 - There is no way to **restore an archived dish** (no un-archive in the API or the UI); create it again.
-- The split is stateless: parts are not stored per guest, payments are just amounts (optionally labelled).
+- The split is stateless: parts are not stored per guest, payments are amounts plus an optional language-neutral label (`guest:2`, `part:3`) saying which part they paid.
 - HTTPS is not terminated in this stack (set `COOKIE_SECURE=true` behind a TLS terminator).
 - The Swagger UI is public.
 - Rate limits are per client IP. In a restaurant all tablets usually share **one NAT address**, so the general and login limits are

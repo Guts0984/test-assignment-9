@@ -164,3 +164,18 @@ export const send = async (c: Client, order: Order): Promise<Order> => {
 };
 
 export const code = (r: Reply): string | undefined => r.body?.error?.code;
+
+/** The cook takes every sent item to `ready` (payment is only accepted once nothing is being prepared). */
+export const makeReady = async (waiter: Client, cook: Client, order: Order): Promise<Order> => {
+  for (const item of order.items) {
+    if (item.status !== 'sent' && item.status !== 'cooking') continue;
+    if (item.status === 'sent') {
+      const r = await cook.patch(`/kitchen/items/${item.id}`, { status: 'cooking' });
+      if (r.status !== 200) throw new Error(`cooking failed: ${r.status} ${r.text}`);
+    }
+    const r = await cook.patch(`/kitchen/items/${item.id}`, { status: 'ready' });
+    if (r.status !== 200) throw new Error(`ready failed: ${r.status} ${r.text}`);
+  }
+  const r = await waiter.get(`/orders/${order.id}`);
+  return r.body as Order;
+};

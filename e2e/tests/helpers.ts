@@ -124,3 +124,36 @@ export const kitchenCard = (
   cook
     .getByRole('button', { name: new RegExp(`${action}: ${dish}`) })
     .filter({ hasText: `Check #${check} ` });
+
+/**
+ * The kitchen finishes every item of a check, through the API as a cook (payment is only accepted once
+ * nothing is being prepared). Items already ready or served are left alone.
+ */
+export const kitchenFinishes = async (
+  browser: Browser,
+  waiter: { page: Page; context: BrowserContext },
+): Promise<void> => {
+  const orderId = waiter.page.url().split('/').pop() as string;
+  const waiterRequest = waiter.context.request;
+  const cook = await asRole(browser, 'cook1');
+  try {
+    const r = await waiterRequest.get(`/api/orders/${orderId}`);
+    const order = (await r.json()) as { items: { id: string; status: string }[] };
+    for (const item of order.items) {
+      if (item.status === 'sent') {
+        const a = await cook.context.request.patch(`/api/kitchen/items/${item.id}`, {
+          data: { status: 'cooking' },
+        });
+        expect(a.ok()).toBe(true);
+      }
+      if (item.status === 'sent' || item.status === 'cooking') {
+        const b = await cook.context.request.patch(`/api/kitchen/items/${item.id}`, {
+          data: { status: 'ready' },
+        });
+        expect(b.ok()).toBe(true);
+      }
+    }
+  } finally {
+    await cook.context.close();
+  }
+};

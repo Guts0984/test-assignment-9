@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { asRole, openCheck, payRemainingByCard, sendToKitchen } from './helpers';
+import { asRole, kitchenFinishes, openCheck, payRemainingByCard, sendToKitchen } from './helpers';
 
 test('keyboard-only sign in, with errors at the fields', async ({ page }) => {
   await page.goto('/en/login');
@@ -111,6 +111,7 @@ test('Ukrainian and English: money formats, declensions (3 позиції / 5 п
     await expect(waiter.page.getByRole('button', { name: /^Cheesecake, ₴115\.00/ })).toBeVisible();
 
     await sendToKitchen(waiter.page);
+    await kitchenFinishes(browser, waiter);
     await waiter.page.getByRole('button', { name: 'Pay', exact: true }).click();
     await payRemainingByCard(waiter.page);
     await expect(waiter.page.getByRole('dialog').getByText('Check paid in full')).toBeVisible();

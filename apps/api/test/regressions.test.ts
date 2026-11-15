@@ -1,11 +1,12 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { restaurantTables } from '@app/db';
+import { orderItems, payments, restaurantTables } from '@app/db';
+import { eq } from 'drizzle-orm';
 import type { Order } from '@app/shared';
 import { createGate } from '../src/rate-limit/gate';
 import { PASSWORDS } from './harness';
-import { add, code, open, send, startSession, type Session } from './world';
+import { add, code, open, send, startSession, type Session, makeReady } from './world';
 
 /** Bugs found by an external audit. Each test failed before its fix. */
 
@@ -32,29 +33,93 @@ const pay = (o: Order, amount: number, over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-describe('a paid-for check cannot become cheaper than what was paid', () => {
-  it('cancelling a sent item after a partial payment is refused; the check can still be settled', async () => {
+describe('payment is only taken once nothing is being prepared', () => {
+  it('a sent or cooking item blocks payment (409 ITEMS_IN_PROGRESS); ready or served items do not', async () => {
     let o = await open(s.waiter1, table(), 2);
-    o = await add(s.waiter1, o, s.world.soup.id); // 120,00
-    o = await add(s.waiter1, o, s.world.beer.id); // 80,00
+    o = await add(s.waiter1, o, s.world.soup.id);
+    o = await add(s.waiter1, o, s.world.beer.id);
     o = await send(s.waiter1, o);
-    const partial = await pay(o, 15000);
-    expect(partial.status).toBe(201);
-    o = partial.body.order as Order;
+    const blocked = await pay(o, o.remaining);
+    expect(blocked.status).toBe(409);
+    expect(code(blocked)).toBe('ITEMS_IN_PROGRESS');
 
+    const [soup, beer] = [
+      o.items.find((i) => i.dishName === 'Soup')!,
+      o.items.find((i) => i.dishName === 'Beer')!,
+    ];
+    await s.cook.patch(`/kitchen/items/${soup.id}`, { status: 'cooking' });
+    await s.cook.patch(`/kitchen/items/${soup.id}`, { status: 'ready' });
+    const stillBlocked = await pay(o, o.remaining); // the beer is still only "sent"
+    expect(code(stillBlocked)).toBe('ITEMS_IN_PROGRESS');
+
+    await s.cook.patch(`/kitchen/items/${beer.id}`, { status: 'cooking' });
+    await s.cook.patch(`/kitchen/items/${beer.id}`, { status: 'ready' });
+    const served = await s.waiter1.patch(`/orders/${o.id}/items/${soup.id}`, { status: 'served' });
+    expect(served.status).toBe(200);
+    const fresh = served.body as Order;
+    const ok = await pay(fresh, fresh.remaining);
+    expect(ok.status).toBe(201);
+    expect((ok.body.order as Order).status).toBe('paid');
+  });
+
+  it('the item the guest is waiting for stays visible to the cook until it is made', async () => {
+    let o = await open(s.waiter1, table(), 2);
+    o = await add(s.waiter1, o, s.world.soup.id);
+    o = await send(s.waiter1, o);
+    expect(code(await pay(o, o.remaining))).toBe('ITEMS_IN_PROGRESS');
+    const queue = ((await s.cook.get('/kitchen')).body as { items: { id: string }[] }).items;
+    expect(queue.some((i) => i.id === o.items[0]!.id)).toBe(true);
+    expect(
+      (await s.cook.patch(`/kitchen/items/${o.items[0]!.id}`, { status: 'cooking' })).status,
+    ).toBe(200);
+  });
+
+  it('a payment cannot be taken while a new item was sent after a partial payment', async () => {
+    let o = await open(s.waiter1, table(), 2);
+    o = await add(s.waiter1, o, s.world.soup.id);
+    o = await makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
+    const first = await pay(o, 5000);
+    expect(first.status).toBe(201);
+    o = first.body.order as Order;
+    o = await add(s.waiter1, o, s.world.beer.id);
+    o = await send(s.waiter1, o);
+    expect(code(await pay(o, 1000))).toBe('ITEMS_IN_PROGRESS');
+    // cancelling the new item is still fine: the total stays above what was paid
     const beer = o.items.find((i) => i.dishName === 'Beer')!;
     const cancel = await s.waiter1.del(
       `/orders/${o.id}/items/${beer.id}?expectedVersion=${o.version}`,
     );
-    expect(cancel.status).toBe(409);
-    expect(code(cancel)).toBe('ORDER_PARTIALLY_PAID');
+    expect(cancel.status).toBe(200);
+    const after = cancel.body as Order;
+    expect(after.paidAmount).toBe(5000);
+    expect((await pay(after, after.remaining)).status).toBe(201);
+  });
 
+  it('the invariant itself: a cancellation that would drop the total below the paid amount is refused', async () => {
+    let o = await open(s.waiter1, table(), 2);
+    o = await add(s.waiter1, o, s.world.soup.id); // 120,00
+    o = await add(s.waiter1, o, s.world.beer.id); // 80,00
+    o = await send(s.waiter1, o);
+    // a payment that the API itself no longer allows at this point, inserted directly
+    await s.app.db.insert(payments).values({
+      id: randomUUID(),
+      orderId: o.id,
+      method: 'card',
+      amount: 15000,
+      tendered: null,
+      change: 0,
+      label: null,
+      requestHash: 'x',
+    });
+    const beer = o.items.find((i) => i.dishName === 'Beer')!;
+    const cancel = await s.waiter1.del(
+      `/orders/${o.id}/items/${beer.id}?expectedVersion=${o.version}`,
+    );
+    expect(cancel.status).toBe(409); // 200,00 - 80,00 = 120,00 would be below the 150,00 already paid
+    expect(code(cancel)).toBe('ORDER_PARTIALLY_PAID');
     const after = (await s.waiter1.get(`/orders/${o.id}`)).body as Order;
     expect(after.total).toBe(20000);
-    const rest = await pay(after, after.remaining);
-    expect(rest.status).toBe(201);
-    expect((rest.body.order as Order).status).toBe('paid');
-    expect((rest.body.order as Order).remaining).toBe(0);
+    expect(after.items.find((i) => i.id === beer.id)!.status).toBe('sent');
   });
 
   it('before any payment, cancelling still works (the stock rule is unchanged)', async () => {
@@ -92,6 +157,22 @@ describe('a check with nothing to bill can be closed, so the table is not lost',
     const closed = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
     expect(closed.status).toBe(200);
     expect((closed.body as Order).items.every((i) => i.status === 'cancelled')).toBe(true);
+  });
+
+  it('a sent free dish (price 0) is still food: the check cannot be closed over it', async () => {
+    const [free] = await s.app.db
+      .insert((await import('@app/db')).dishes)
+      .values({ name: 'Free bread', category: 'Test', price: 0, station: 'kitchen' })
+      .returning();
+    let o = await open(s.waiter1, table(), 2);
+    o = await add(s.waiter1, o, free!.id);
+    expect(o.total).toBe(0);
+    o = await send(s.waiter1, o);
+    const closed = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
+    expect(closed.status).toBe(409);
+    expect(code(closed)).toBe('NOT_EMPTY');
+    const queue = ((await s.cook.get('/kitchen')).body as { items: { id: string }[] }).items;
+    expect(queue.some((i) => i.id === o.items[0]!.id)).toBe(true);
   });
 
   it('refused when there is something to bill, when someone else changed it, and for other waiters', async () => {
@@ -135,35 +216,30 @@ describe('a check with nothing to bill can be closed, so the table is not lost',
 });
 
 describe('a paid check does not change any more', () => {
-  it('serve and cook transitions on a paid check are refused; the kitchen queue no longer lists it', async () => {
+  it('serving on a paid check is refused', async () => {
     let o = await open(s.waiter1, table(), 2);
     o = await add(s.waiter1, o, s.world.soup.id);
-    o = await add(s.waiter1, o, s.world.beer.id);
-    o = await send(s.waiter1, o);
-    const [soup, beer] = [
-      o.items.find((i) => i.dishName === 'Soup')!,
-      o.items.find((i) => i.dishName === 'Beer')!,
-    ];
-    expect((await s.cook.patch(`/kitchen/items/${soup.id}`, { status: 'cooking' })).status).toBe(
-      200,
-    );
-    expect((await s.cook.patch(`/kitchen/items/${soup.id}`, { status: 'ready' })).status).toBe(200);
-
-    const paid = await pay(o, o.remaining);
-    expect(paid.status).toBe(201);
-
-    const serve = await s.waiter1.patch(`/orders/${o.id}/items/${soup.id}`, { status: 'served' });
+    o = await makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
+    expect((await pay(o, o.remaining)).status).toBe(201);
+    const serve = await s.waiter1.patch(`/orders/${o.id}/items/${o.items[0]!.id}`, {
+      status: 'served',
+    });
     expect(serve.status).toBe(409);
     expect(code(serve)).toBe('ORDER_PAID');
-    const cook = await s.cook.patch(`/kitchen/items/${beer.id}`, { status: 'cooking' });
+  });
+
+  it('even if an item were still in the kitchen on a paid check (forced here), the cook cannot move it and the queue hides it', async () => {
+    let o = await open(s.waiter1, table(), 2);
+    o = await add(s.waiter1, o, s.world.beer.id);
+    o = await makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
+    expect((await pay(o, o.remaining)).status).toBe(201);
+    const item = o.items[0]!;
+    await s.app.db.update(orderItems).set({ status: 'sent' }).where(eq(orderItems.id, item.id));
+    const cook = await s.cook.patch(`/kitchen/items/${item.id}`, { status: 'cooking' });
     expect(cook.status).toBe(409);
     expect(code(cook)).toBe('ORDER_PAID');
     const queue = ((await s.cook.get('/kitchen')).body as { items: { id: string }[] }).items;
-    expect(queue.some((i) => i.id === beer.id)).toBe(false);
-
-    const final = (await s.waiter1.get(`/orders/${o.id}`)).body as Order;
-    expect(final.items.find((i) => i.id === soup.id)!.status).toBe('ready');
-    expect(final.items.find((i) => i.id === beer.id)!.status).toBe('sent');
+    expect(queue.some((i) => i.id === item.id)).toBe(false);
   });
 });
 

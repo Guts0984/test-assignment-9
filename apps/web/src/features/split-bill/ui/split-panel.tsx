@@ -57,7 +57,7 @@ export const localSplit = (
 
 /**
  * Which parts are already covered by the payments so far. The server keeps no per-part state: a split
- * is only a way to pick the next amount, and the label of the picked part is stored on the payment.
+ * is only a way to pick the next amount, and the key of the picked part (`guest:2`, `part:3`) is stored as the payment label.
  * So a part is paid when a payment carries its label; payments that match no part (paid without a
  * label, or while another split mode was shown) are spread over the remaining parts in order.
  */
@@ -116,11 +116,16 @@ export const SplitPanel = ({
   // Shown at once from the local calculation; replaced by the server's answer when it arrives, and
   // kept if the server cannot be reached (the numbers come from the same shared functions).
   const result = body ? (query.data ?? localSplit(order, body)) : undefined;
+  // Shown to the waiter (translated) ...
   const partLabel = (p: { guest: number | null; index: number }): string =>
     p.guest !== null ? common('guest', { n: p.guest }) : t('part', { n: p.index });
+  // ... but what is stored on the payment is language-neutral, so a check paid on a Ukrainian tablet reads
+  // the same on an English one.
+  const partKey = (p: { guest: number | null; index: number }): string =>
+    p.guest !== null ? `guest:${p.guest}` : `part:${p.index}`;
   const paid = result
     ? paidPartFlags(
-        result.parts.map((p) => ({ total: p.total, label: partLabel(p) })),
+        result.parts.map((p) => ({ total: p.total, label: partKey(p) })),
         order.payments,
       )
     : [];
@@ -192,7 +197,7 @@ export const SplitPanel = ({
                     size="sm"
                     variant="outline"
                     disabled={paid[i] || order.status === 'paid'}
-                    onClick={() => onPick(Math.min(p.total, order.remaining), partLabel(p))}
+                    onClick={() => onPick(Math.min(p.total, order.remaining), partKey(p))}
                   >
                     {paid[i] ? t('partPaid') : t('payThis')}
                   </Button>
