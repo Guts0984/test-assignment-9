@@ -1,0 +1,40 @@
+name: restaurant
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Local only: lets tests on the host reach the database.
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot job: apply migrations, then seed if the database is empty.
+  db-init:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      RESTAURANT_TZ: ${RESTAURANT_TZ:-Europe/Kyiv}
+      SEED_WAITER_PASSWORD: ${SEED_WAITER_PASSWORD}
+      SEED_COOK_PASSWORD: ${SEED_COOK_PASSWORD}
+      SEED_MANAGER_PASSWORD: ${SEED_MANAGER_PASSWORD}
+      SEED_RESET: ${SEED_RESET:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+volumes:
+  pgdata:

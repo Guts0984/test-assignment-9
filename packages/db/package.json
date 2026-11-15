@@ -1,0 +1,32 @@
+{
+  "name": "@app/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --env-file-if-exists=../../.env ../../node_modules/vitest/vitest.mjs run",
+    "generate": "drizzle-kit generate",
+    "migrate": "node --env-file-if-exists=../../.env --import tsx src/cli.ts migrate",
+    "seed": "node --env-file-if-exists=../../.env --import tsx src/cli.ts seed",
+    "init": "node --env-file-if-exists=../../.env --import tsx src/cli.ts init"
+  },
+  "dependencies": {
+    "@app/shared": "workspace:*",
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.0",
+    "tsx": "^4.19.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  }
+}
