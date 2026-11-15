@@ -1,1 +1,7 @@
-export { SplitPanel, localSplit, paidPartFlags, type SplitMode } from './ui/split-panel';
+export {
+  SplitPanel,
+  describePartKey,
+  localSplit,
+  paidPartFlags,
+  type SplitMode,
+} from './ui/split-panel';

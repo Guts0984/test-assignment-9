@@ -217,6 +217,31 @@ describe('OrderWorkspace', () => {
     expect(screen.queryByRole('button', { name: /Send to kitchen/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Soup, / })).toBeDisabled();
   });
+  it('the payment history shows a part payment in the viewer language, not the stored key', async () => {
+    const partly = {
+      items: [makeItem(1, { status: 'served' })],
+      subtotal: 10000,
+      total: 10000,
+      paidAmount: 4000,
+      remaining: 6000,
+      payments: [
+        {
+          id: id(900),
+          method: 'card',
+          amount: 4000,
+          tendered: null,
+          change: 0,
+          label: 'guest:2',
+          createdAt: '2025-06-01T10:30:00.000Z',
+        },
+      ],
+    };
+    serve({ order: base(partly), menu: [soup] });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Pay$/ }));
+    expect(await screen.findByText('Card · Guest 2')).toBeInTheDocument();
+    expect(screen.queryByText(/guest:2/)).not.toBeInTheDocument();
+  });
   it('cancel is offered before cooking, not after', async () => {
     serve({
       order: base({

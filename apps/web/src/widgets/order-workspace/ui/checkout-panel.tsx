@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { Order } from '@app/shared';
 import { hasDrafts } from '@/entities/order/model';
 import { PaymentForm } from '@/features/pay-order';
-import { SplitPanel } from '@/features/split-bill';
+import { SplitPanel, describePartKey } from '@/features/split-bill';
 import { Link } from '@/shared/i18n/navigation';
 import type { Locale } from '@/shared/i18n/routing';
 import { formatMoney } from '@/shared/lib/money';
@@ -79,8 +79,13 @@ export const CheckoutPanel = ({ order }: { order: Order }) => {
 
 const PaymentHistory = ({ order }: { order: Order }) => {
   const t = useTranslations('checkout');
+  const common = useTranslations('common');
   const locale = useLocale() as Locale;
   if (order.payments.length === 0) return null;
+  const text = {
+    guest: (n: number) => common('guest', { n }),
+    part: (n: number) => t('part', { n }),
+  };
   return (
     <section aria-labelledby="payments-title">
       <h3 id="payments-title" className="mb-1 text-sm font-semibold">
@@ -91,7 +96,7 @@ const PaymentHistory = ({ order }: { order: Order }) => {
           <li key={p.id} className="flex justify-between gap-3 rounded border px-3 py-1.5">
             <span>
               {p.method === 'cash' ? t('cashShort') : t('cardShort')}
-              {p.label ? ` · ${p.label}` : ''}
+              {p.label ? ` · ${describePartKey(p.label, text)}` : ''}
             </span>
             <span className="tabular-nums">
               {formatMoney(p.amount, locale)}

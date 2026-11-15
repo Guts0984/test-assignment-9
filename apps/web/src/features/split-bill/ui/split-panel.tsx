@@ -84,6 +84,16 @@ export const paidPartFlags = (
   return flags;
 };
 
+/** `guest:2` / `part:3` (as stored on a payment) → the text to show; anything else is shown as it is. */
+export const describePartKey = (
+  key: string,
+  text: { guest: (n: number) => string; part: (n: number) => string },
+): string => {
+  const m = /^(guest|part):([1-9]\d{0,3})$/.exec(key);
+  if (!m) return key;
+  return m[1] === 'guest' ? text.guest(Number(m[2])) : text.part(Number(m[2]));
+};
+
 export const SplitPanel = ({
   order,
   onPick,

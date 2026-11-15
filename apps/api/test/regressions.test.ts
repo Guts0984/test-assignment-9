@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { orderItems, payments, restaurantTables } from '@app/db';
+import { dishes, orderItems, payments, restaurantTables } from '@app/db';
 import { eq } from 'drizzle-orm';
 import type { Order } from '@app/shared';
 import { createGate } from '../src/rate-limit/gate';
@@ -159,26 +159,46 @@ describe('a check with nothing to bill can be closed, so the table is not lost',
     expect((closed.body as Order).items.every((i) => i.status === 'cancelled')).toBe(true);
   });
 
-  it('a sent free dish (price 0) is still food: the check cannot be closed over it', async () => {
+  it('a free dish (price 0): cannot be closed while it is in the kitchen, can be closed once served', async () => {
     const [free] = await s.app.db
-      .insert((await import('@app/db')).dishes)
+      .insert(dishes)
       .values({ name: 'Free bread', category: 'Test', price: 0, station: 'kitchen' })
       .returning();
     let o = await open(s.waiter1, table(), 2);
     o = await add(s.waiter1, o, free!.id);
     expect(o.total).toBe(0);
     o = await send(s.waiter1, o);
-    const closed = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
-    expect(closed.status).toBe(409);
-    expect(code(closed)).toBe('NOT_EMPTY');
+    const item = o.items[0]!;
+    const early = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
+    expect(early.status).toBe(409);
+    expect(code(early)).toBe('ITEMS_IN_PROGRESS');
     const queue = ((await s.cook.get('/kitchen')).body as { items: { id: string }[] }).items;
-    expect(queue.some((i) => i.id === o.items[0]!.id)).toBe(true);
+    expect(queue.some((i) => i.id === item.id)).toBe(true);
+    // paying is pointless too: nothing to pay (the way out is serving it, then closing)
+    await makeReady(s.waiter1, s.cook, o);
+    const ready = (await s.waiter1.get(`/orders/${o.id}`)).body as Order;
+    expect(
+      code(await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: ready.version })),
+    ).toBe('ITEMS_IN_PROGRESS');
+    const served = await s.waiter1.patch(`/orders/${o.id}/items/${item.id}`, { status: 'served' });
+    expect(served.status).toBe(200);
+    const closed = await s.waiter1.post(`/orders/${o.id}/close`, {
+      expectedVersion: (served.body as Order).version,
+    });
+    expect(closed.status).toBe(200);
+    expect((closed.body as Order).status).toBe('paid');
+    expect((closed.body as Order).items[0]!.status).toBe('served');
   });
 
   it('refused when there is something to bill, when someone else changed it, and for other waiters', async () => {
     let o = await open(s.waiter1, table(), 2);
     o = await add(s.waiter1, o, s.world.soup.id);
     o = await send(s.waiter1, o);
+    const inKitchen = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
+    expect(code(inKitchen)).toBe('ITEMS_IN_PROGRESS');
+    o = await makeReady(s.waiter1, s.cook, o);
+    o = (await s.waiter1.patch(`/orders/${o.id}/items/${o.items[0]!.id}`, { status: 'served' }))
+      .body as Order;
     const billable = await s.waiter1.post(`/orders/${o.id}/close`, { expectedVersion: o.version });
     expect(billable.status).toBe(409);
     expect(code(billable)).toBe('NOT_EMPTY');

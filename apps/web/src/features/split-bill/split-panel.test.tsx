@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Order } from '@app/shared';
-import { SplitPanel, paidPartFlags } from './index';
+import { SplitPanel, describePartKey, paidPartFlags } from './index';
 import { apiError, makeItem, makeOrder, mockFetch, renderApp } from '../../../test/utils';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -192,5 +192,20 @@ describe('paidPartFlags', () => {
 
   it('labels from another split mode fall back to the in-order rule', () => {
     expect(paidPartFlags(parts, [pay('part:1', 5000)])).toEqual([true, false]);
+  });
+});
+
+describe('describePartKey', () => {
+  const en = { guest: (n: number) => `Guest ${n}`, part: (n: number) => `Part ${n}` };
+  const uk = { guest: (n: number) => `Гість ${n}`, part: (n: number) => `Частина ${n}` };
+  it('turns stored keys into text in the viewer language', () => {
+    expect(describePartKey('guest:2', en)).toBe('Guest 2');
+    expect(describePartKey('guest:2', uk)).toBe('Гість 2');
+    expect(describePartKey('part:3', uk)).toBe('Частина 3');
+  });
+  it('anything else (older free-text labels, junk) is shown as it is, never executed or mangled', () => {
+    expect(describePartKey('Table by the window', en)).toBe('Table by the window');
+    for (const bad of ['guest:0', 'guest:-1', 'guest:2x', 'part:', 'guest:99999', ' guest:2'])
+      expect(describePartKey(bad, en)).toBe(bad);
   });
 });

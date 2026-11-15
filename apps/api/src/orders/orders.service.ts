@@ -401,14 +401,15 @@ export class OrdersService {
       assertOwner(user, head);
       await bumpVersion(tx, orderId, expectedVersion);
       const current = await requireOrder(tx, orderId);
-      // Only a check that holds nothing but drafts and cancelled items may be closed: a sent free dish
-      // (price 0) is still food the kitchen has to make.
-      const live = current.items.some((i) => i.status !== 'draft' && i.status !== 'cancelled');
-      if (
-        live ||
-        orderTotals(current.items, current.guests).total > 0 ||
-        current.payments.length > 0
-      ) {
+      // Closable: nothing left to make or to pay. Items that are drafts, cancelled or already served are
+      // fine (a free dish that was served leaves nothing to bill); food still in the kitchen is not.
+      if (current.items.some((i) => ['sent', 'cooking', 'ready'].includes(i.status))) {
+        throw conflict(
+          'Some items are still in the kitchen or waiting to be served; serve or cancel them first',
+          'ITEMS_IN_PROGRESS',
+        );
+      }
+      if (orderTotals(current.items, current.guests).total > 0 || current.payments.length > 0) {
         throw conflict('This check has items to bill; pay it instead', 'NOT_EMPTY');
       }
       await tx
