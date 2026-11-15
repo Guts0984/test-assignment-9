@@ -95,6 +95,24 @@ I also checked that the tests can fail: for the critical mechanisms (stock guard
 cancel-vs-cook compare-and-set, global limiter, proxy trust) I temporarily broke the implementation and confirmed that the
 suite went red.
 
+## Acceptance checklist → where it is verified
+
+| #   | Check                                                       | Verified by                                                                           |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1   | `cp .env.example .env && docker compose up --build`         | the compose stack itself; CI jobs `stack` and `e2e` start it from scratch             |
+| 2   | typecheck, lint, tests, CI                                  | `pnpm lint && pnpm format && pnpm typecheck && pnpm test`, `.github/workflows/ci.yml` |
+| 3   | order with modifiers → kitchen → ready, no reload           | e2e `order-flow` (waiter page is proven not to reload), web live-status tests         |
+| 4   | one portion, two simultaneous sends                         | api `concurrency` (25 rounds), db `ops`, e2e `stoplist` (two browsers)                |
+| 5   | cancel before / after `cooking`                             | api `orders` + `concurrency` (cancel vs cook race), e2e `order-flow`                  |
+| 6   | 7 guests, split equally on 3                                | shared `money` (property tests), api `payments`, web `local-split`, e2e `payment`     |
+| 7   | double click and dropped connection on payment              | api `payments` + `concurrency`, web `payment`, e2e `payment`                          |
+| 8   | add an item to a check being paid → `409`                   | api `concurrency` (30 raced rounds) and `payments`                                    |
+| 9   | 50 concurrent check openings                                | api `concurrency` (with failing attempts mixed in), db `ops` (50 and 200)             |
+| 10  | foreign table, cook → check, waiter → menu, direct requests | api `rbac` (every route × every role, IDOR, escalation), e2e `locale-and-access`      |
+| 11  | 60-day report is fast; period from the URL                  | db `report`, api `reports.timing` (< 300 ms over HTTP), e2e report test               |
+| 12  | `uk` and `en`: money and declensions                        | web `i18n`, `money`, e2e locale test                                                  |
+| 13  | README matches behaviour                                    | this file was written against the tests above                                         |
+
 ## How money works
 
 All amounts are **integer kopecks**; there is no floating point anywhere in the money path (`packages/shared/src/money.ts`,

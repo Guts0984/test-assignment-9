@@ -151,3 +151,21 @@ Tests (Vitest + Testing Library): total & split computation == server fixtures, 
 5. Split is a computed view, not persisted.
 6. Tests need Docker (for Postgres); CI uses a Postgres service container.
 7. Demo passwords come from `.env.example` (documented as demo-only), never from code.
+
+---
+
+## Status (written after delivery) — where the result differs from this plan
+
+- **Done in 9 commits instead of 8**: foundation + schemas (yours), db, api core, api domain, nginx, web, e2e + docs.
+  Money functions and time helpers were folded into the db commit because the seed uses them.
+- **No Redis**, as decided: rate limiting and the SSE bus are in-process; sessions are in Postgres.
+- **nginx** is a fourth compose service. It is tested black-box from *inside* the compose network
+  (`infra/stack-tests`) because only there can a test have many real source addresses.
+- **Hostile tests run the API as a separate OS process** (an in-process server shares the event loop with the
+  attacker and would make latency numbers meaningless).
+- **Rate limits were relaxed** after e2e showed that a restaurant's devices share one NAT address: general and login
+  limits are per address and generous; brute force on one account stays strict (per address + account).
+- **Money columns are `integer`**, so price/surcharge, payment and subtotal caps were added (fuzzing found an overflow).
+- **Web tests that touch the server's rules reuse the same numbers** as the API tests (612,44 → 204,15 + 204,15 + 204,14).
+- Not implemented (documented in README "Known limits"): voiding a check, per-guest payment tracking, TLS termination.
+
