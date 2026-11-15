@@ -4,3 +4,4 @@ dist
 pnpm-lock.yaml
 packages/db/migrations
 plan.md
+next-env.d.ts

@@ -192,9 +192,9 @@ describe('credential attacks', () => {
 
   it('credential stuffing with rotating usernames is capped per IP; others can still log in', async () => {
     const rs: Reply[] = [];
-    for (let i = 0; i < 80; i++) rs.push(await attempt(`user${i}`, 'Password1!', OTHER));
-    expect(count(rs, 401)).toBeLessThanOrEqual(11); // login burst per IP is 10 (+ refill trickle)
-    expect(count(rs, 429)).toBeGreaterThan(65);
+    for (let i = 0; i < 120; i++) rs.push(await attempt(`user${i}`, 'Password1!', OTHER));
+    expect(count(rs, 401)).toBeLessThanOrEqual(32); // login burst per IP is 30 (+ refill trickle)
+    expect(count(rs, 429)).toBeGreaterThan(85);
     expect((await attempt('waiter1', PASSWORDS.waiter1, '127.0.0.12')).status).toBe(200);
   });
 

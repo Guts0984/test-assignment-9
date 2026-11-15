@@ -53,10 +53,10 @@ services:
       BODY_LIMIT_KB: ${BODY_LIMIT_KB:-64}
       LOG_LEVEL: ${LOG_LEVEL:-log}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
-      RATE_LIMIT_GLOBAL_BURST: ${RATE_LIMIT_GLOBAL_BURST:-120}
-      RATE_LIMIT_GLOBAL_PER_SEC: ${RATE_LIMIT_GLOBAL_PER_SEC:-30}
-      RATE_LIMIT_LOGIN_IP_BURST: ${RATE_LIMIT_LOGIN_IP_BURST:-10}
-      RATE_LIMIT_LOGIN_IP_PER_MIN: ${RATE_LIMIT_LOGIN_IP_PER_MIN:-10}
+      RATE_LIMIT_GLOBAL_BURST: ${RATE_LIMIT_GLOBAL_BURST:-300}
+      RATE_LIMIT_GLOBAL_PER_SEC: ${RATE_LIMIT_GLOBAL_PER_SEC:-100}
+      RATE_LIMIT_LOGIN_IP_BURST: ${RATE_LIMIT_LOGIN_IP_BURST:-30}
+      RATE_LIMIT_LOGIN_IP_PER_MIN: ${RATE_LIMIT_LOGIN_IP_PER_MIN:-30}
       RATE_LIMIT_LOGIN_USER_BURST: ${RATE_LIMIT_LOGIN_USER_BURST:-5}
       RATE_LIMIT_LOGIN_USER_PER_MIN: ${RATE_LIMIT_LOGIN_USER_PER_MIN:-5}
       LOGIN_MAX_CONCURRENCY: ${LOGIN_MAX_CONCURRENCY:-4}
@@ -71,6 +71,15 @@ services:
     expose:
       - '4000'
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    # Not published: the only way in is nginx.
+    expose:
+      - '3000'
+
   nginx:
     build:
       context: .
@@ -78,6 +87,8 @@ services:
     restart: unless-stopped
     depends_on:
       api:
+        condition: service_healthy
+      web:
         condition: service_healthy
     ports:
       - '${HTTP_PORT:-8080}:80'

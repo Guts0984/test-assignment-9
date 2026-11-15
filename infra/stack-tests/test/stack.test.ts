@@ -100,7 +100,7 @@ describe('sessions and CSRF across the proxy', () => {
 describe('the edge: one noisy client cannot hurt the others', () => {
   it('flood from one address → 429 from nginx; a second address is untouched while it happens', async () => {
     const attack = Promise.all(
-      Array.from({ length: 400 }, () => call({ path: '/api/health', from: ip(4) })),
+      Array.from({ length: 700 }, () => call({ path: '/api/health', from: ip(4) })),
     );
     const victim: Reply[] = [];
     for (let i = 0; i < 15; i++) {
@@ -108,7 +108,7 @@ describe('the edge: one noisy client cannot hurt the others', () => {
       await sleep(40);
     }
     const rs = await attack;
-    expect(count(rs, 429)).toBeGreaterThan(250);
+    expect(count(rs, 429)).toBeGreaterThan(400);
     expect(
       rs.filter((r) => r.status === 429).some((r) => r.body?.error?.requestId === 'nginx'),
     ).toBe(true);
@@ -125,7 +125,7 @@ describe('the edge: one noisy client cannot hurt the others', () => {
   });
   it('rotating a forged X-Forwarded-For does not dodge the edge limit', async () => {
     const rs = await Promise.all(
-      Array.from({ length: 300 }, (_, i) =>
+      Array.from({ length: 500 }, (_, i) =>
         call({
           path: '/api/health',
           from: ip(6),
@@ -133,7 +133,7 @@ describe('the edge: one noisy client cannot hurt the others', () => {
         }),
       ),
     );
-    expect(count(rs, 429)).toBeGreaterThan(150);
+    expect(count(rs, 429)).toBeGreaterThan(250);
   });
   it('the API itself sees the real client address, not the forged header (login lockout still bites)', async () => {
     // 6 attempts fit through nginx's login burst; the API's per-(IP, user) limit is 5, so the 6th is
@@ -158,7 +158,7 @@ describe('the edge: one noisy client cannot hurt the others', () => {
   });
   it('login has its own, stricter edge limit', async () => {
     const rs: Reply[] = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 60; i++) {
       rs.push(
         await call({
           method: 'POST',
@@ -171,24 +171,24 @@ describe('the edge: one noisy client cannot hurt the others', () => {
     expect(
       rs.filter((r) => r.body?.error?.requestId === 'nginx' && r.status === 429).length,
     ).toBeGreaterThan(0);
-    expect(count(rs, 401)).toBeLessThanOrEqual(7);
+    expect(count(rs, 401)).toBeLessThanOrEqual(20);
   });
 });
 
 describe('bypassing nginx does not help (internal network, direct to api:4000)', () => {
   it('a client that is not the proxy cannot spoof its address with X-Forwarded-For', async () => {
-    const rs: Reply[] = [];
-    for (let i = 0; i < 160; i++) {
-      rs.push(
-        await call({
+    // 900 requests at once, each claiming a different client address in X-Forwarded-For.
+    const rs = await Promise.all(
+      Array.from({ length: 900 }, (_, i) =>
+        call({
           base: API_DIRECT,
           path: '/health',
           from: ip(10),
           headers: { 'x-forwarded-for': `203.0.113.${i % 250}` },
         }),
-      );
-    }
-    expect(count(rs, 429)).toBeGreaterThan(20); // throttled as ONE client: the header was ignored
+      ),
+    );
+    expect(count(rs, 429)).toBeGreaterThan(300); // throttled as ONE client: the header was ignored
   });
   it('compose publishes only nginx (and postgres on loopback); the API port is not published', () => {
     const compose = parse(readFileSync('/repo/docker-compose.yml', 'utf8')) as {

@@ -61,11 +61,11 @@ export const envSchema = z.object({
   RATE_LIMIT_ENABLED: bool.default('true'),
   RATE_LIMIT_MAX_KEYS: int(100, 1_000_000).default(50_000),
   /** Any request: burst size and sustained requests/second. */
-  RATE_LIMIT_GLOBAL_BURST: int(1, 100_000).default(120),
-  RATE_LIMIT_GLOBAL_PER_SEC: z.coerce.number().positive().max(10_000).default(30),
+  RATE_LIMIT_GLOBAL_BURST: int(1, 100_000).default(300),
+  RATE_LIMIT_GLOBAL_PER_SEC: z.coerce.number().positive().max(10_000).default(100),
   /** Login attempts per IP. */
-  RATE_LIMIT_LOGIN_IP_BURST: int(1, 1000).default(10),
-  RATE_LIMIT_LOGIN_IP_PER_MIN: z.coerce.number().positive().max(10_000).default(10),
+  RATE_LIMIT_LOGIN_IP_BURST: int(1, 1000).default(30),
+  RATE_LIMIT_LOGIN_IP_PER_MIN: z.coerce.number().positive().max(10_000).default(30),
   /** Login attempts per IP + username (never username alone: that would let anyone lock a victim out). */
   RATE_LIMIT_LOGIN_USER_BURST: int(1, 1000).default(5),
   RATE_LIMIT_LOGIN_USER_PER_MIN: z.coerce.number().positive().max(10_000).default(5),
