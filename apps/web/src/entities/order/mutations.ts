@@ -14,6 +14,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STALE_CODES = new Set([
   'VERSION_CONFLICT',
   'ORDER_PAID',
+  'ORDER_PARTIALLY_PAID',
   'INVALID_TRANSITION',
   'OUT_OF_STOCK',
   'NOT_FOUND',
@@ -70,7 +71,14 @@ export const useOrderMutations = (orderId: string) => {
     onError,
   });
 
-  return { add, remove, send, serve };
+  const close = useMutation({
+    scope,
+    mutationFn: () => api.closeOrder(orderId, version()),
+    onSuccess: put,
+    onError,
+  });
+
+  return { add, remove, send, serve, close };
 };
 
 export type PayVariables = Omit<PaymentBody, 'expectedVersion'>;

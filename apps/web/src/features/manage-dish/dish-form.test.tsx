@@ -190,4 +190,30 @@ describe('DishFormDialog', () => {
     });
     expect(within(screen.getByRole('dialog')).getByText('Edit “Steak”')).toBeInTheDocument();
   });
+  it('a rename does NOT send the stock it saw when the dialog opened (sold portions stay sold)', async () => {
+    const dish = { ...steak(), stock: 2 } as unknown as Dish;
+    const { calls } = mockFetch(() => dish);
+    const onClose = vi.fn();
+    renderApp(<DishFormDialog dish={dish} open onClose={onClose} />);
+    const name = screen.getByLabelText('Name');
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Big steak');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.name).toBe('Big steak');
+    expect(body).not.toHaveProperty('stock');
+  });
+  it('a stock the manager typed IS sent', async () => {
+    const dish = { ...steak(), stock: 2 } as unknown as Dish;
+    const { calls } = mockFetch(() => dish);
+    const onClose = vi.fn();
+    renderApp(<DishFormDialog dish={dish} open onClose={onClose} />);
+    const stock = screen.getByLabelText(/Portions left/);
+    await userEvent.clear(stock);
+    await userEvent.type(stock, '10');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls[0]?.body).toMatchObject({ stock: 10 });
+  });
 });

@@ -27,6 +27,9 @@ export const LIMITS = {
 
 // eslint-disable-next-line no-control-regex -- intentionally matching control characters to reject them
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
+// Free-text comments may contain line breaks and tabs, nothing else from the control range.
+// eslint-disable-next-line no-control-regex -- intentionally matching control characters to reject them
+const COMMENT_CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 /** Integer number of kopecks, 0 … maxKopecks. Floats, NaN, Infinity, negatives are rejected. */
 export const kopecks = z.number().int().min(0).max(LIMITS.maxKopecks);
@@ -52,7 +55,9 @@ export const optionalText = (max: number = LIMITS.maxCommentLength) =>
     .string()
     .trim()
     .max(max)
-    .refine((s) => !CONTROL_CHARS.test(s), { message: 'Control characters are not allowed' })
+    .refine((s) => !COMMENT_CONTROL_CHARS.test(s), {
+      message: 'Control characters are not allowed',
+    })
     .default('');
 
 /** Optimistic-lock version of an order. */
@@ -70,4 +75,8 @@ export const calendarDate = z
       return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
     },
     { message: 'Not a valid calendar date' },
-  );
+  )
+  // PostgreSQL has no year 0 (and nobody has orders from before the restaurant opened).
+  .refine((s) => s >= '2000-01-01' && s <= '2999-12-31', {
+    message: 'Date must be between 2000-01-01 and 2999-12-31',
+  });

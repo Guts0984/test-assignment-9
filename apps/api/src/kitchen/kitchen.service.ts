@@ -19,11 +19,12 @@ type Row = {
   status: KitchenItem['status'];
   sent_at: Date;
   modifiers: string[];
+  order_status: string;
 };
 
 const base = sql`
   select i.id, i.order_id, o.table_id, o.number as order_number, t.number as table_number,
-         i.dish_name, i.station::text as station, i.comment, i.guest, i.status::text as status, i.sent_at,
+         i.dish_name, i.station::text as station, i.comment, i.guest, i.status::text as status, i.sent_at, o.status::text as order_status,
          coalesce((select array_agg(m.name order by m.name) from order_item_modifiers m where m.item_id = i.id), '{}') as modifiers
   from order_items i
   join orders o on o.id = i.order_id
@@ -54,7 +55,7 @@ export class KitchenService {
     const stationFilter = station ? sql`and i.station = ${station}` : sql``;
     const r = await this.handle.db.execute<Row>(sql`
       ${base}
-      where i.status in ('sent', 'cooking') ${stationFilter}
+      where i.status in ('sent', 'cooking') and o.status = 'open' ${stationFilter}
       order by i.sent_at asc, i.id asc`);
     return r.rows.map(toItem);
   }
@@ -71,10 +72,14 @@ export class KitchenService {
     const changed = await this.handle.db.execute<{ id: string }>(sql`
       update order_items set status = ${next}::item_status, ${stamp}
       where id = ${id} and status = ${prev}::item_status
+        and exists (select 1 from orders o where o.id = order_items.order_id and o.status = 'open')
       returning id`);
     const row = await this.one(id);
     if (!row) throw notFound('Item');
     if (changed.rows.length === 0) {
+      if (row.order_status !== 'open') {
+        throw conflict('This check is already paid and can no longer change', 'ORDER_PAID');
+      }
       throw conflict(
         `Item is "${row.status}"; it must be "${prev}" to become "${next}"`,
         'INVALID_TRANSITION',

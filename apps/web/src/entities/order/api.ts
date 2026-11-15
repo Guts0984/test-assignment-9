@@ -26,3 +26,5 @@ export const splitOrder = (id: string, body: SplitBody) =>
   request(`/orders/${id}/split`, SplitResult, { method: 'POST', json: body });
 export const payOrder = (id: string, body: PaymentBody) =>
   request(`/orders/${id}/payments`, PaymentResult, { method: 'POST', json: body });
+export const closeOrder = (id: string, expectedVersion: number) =>
+  request(`/orders/${id}/close`, Order, { method: 'POST', json: { expectedVersion } });

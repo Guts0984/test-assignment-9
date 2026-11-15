@@ -8,7 +8,6 @@ import { z } from 'zod';
 import { type Dish, LIMITS, type Order } from '@app/shared';
 import { checkModifierSelection, surchargeOf, toggleModifier } from '@/entities/dish/model';
 import { useOrderMutations } from '@/entities/order/mutations';
-import { isApiError } from '@/shared/api/client';
 import type { Locale } from '@/shared/i18n/routing';
 import { useErrorMessage } from '@/shared/lib/error-message';
 import { formatMoney } from '@/shared/lib/money';
@@ -85,8 +84,6 @@ export const AddItemDialog = ({
     );
   });
 
-  const details = isApiError(add.error) ? add.error.details : [];
-
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent closeLabel={common('close')}>
@@ -97,18 +94,7 @@ export const AddItemDialog = ({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-          {add.error ? (
-            <Alert tone="error">
-              {message(add.error)}
-              {details.length > 0 ? (
-                <ul className="mt-1 list-disc pl-5">
-                  {details.map((d, i) => (
-                    <li key={i}>{d.message}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </Alert>
-          ) : null}
+          {add.error ? <Alert tone="error">{message(add.error)}</Alert> : null}
           <Field label={t('guest')} error={form.formState.errors.guest?.message}>
             {(p) => (
               <Select {...p} {...form.register('guest')}>

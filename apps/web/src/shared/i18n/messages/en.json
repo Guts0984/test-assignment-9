@@ -98,7 +98,12 @@
       "ready": "Ready",
       "served": "Served",
       "cancelled": "Cancelled"
-    }
+    },
+    "outOfStockLine": "{name}: not enough portions, or no longer on the menu",
+    "closeEmpty": "Close empty check",
+    "closeEmptyTitle": "Close this check?",
+    "closeEmptyText": "Nothing was ordered or billed on it. The table becomes free.",
+    "closeEmptyConfirm": "Close check"
   },
   "picker": {
     "title": "{dish}",
@@ -247,6 +252,8 @@
     "PAYLOAD_TOO_LARGE": "The request is too large.",
     "UNSUPPORTED_MEDIA_TYPE": "Unsupported request.",
     "INTERNAL": "The server had a problem. Please try again.",
-    "NETWORK": "Cannot reach the server. Check the connection."
+    "NETWORK": "Cannot reach the server. Check the connection.",
+    "ORDER_PARTIALLY_PAID": "Part of this check is already paid, so sent items can no longer be cancelled.",
+    "NOT_EMPTY": "This check has items to bill. Pay it instead."
   }
 }

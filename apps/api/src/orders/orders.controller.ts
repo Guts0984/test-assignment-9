@@ -119,6 +119,20 @@ export class OrdersController {
     return this.orders.send(user(req), id, body.expectedVersion);
   }
 
+  @Post('orders/:id/close')
+  @HttpCode(200)
+  @Endpoint({
+    access: ['waiter'],
+    tag: 'Orders',
+    summary:
+      'Close a check that has nothing to bill (opened by mistake or all items cancelled); frees the table. 409 if anything is billable.',
+    body: SendBody,
+    response: Order,
+  })
+  close(@Param('id') id: string, @Body() body: SendBody, @Req() req: AppRequest) {
+    return this.orders.closeEmpty(user(req), id, body.expectedVersion);
+  }
+
   @Post('orders/:id/split')
   @HttpCode(200)
   @Endpoint({

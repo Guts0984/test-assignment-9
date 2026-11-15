@@ -15,7 +15,10 @@ export const SendButton = ({ order }: { order: Order }) => {
   const { send } = useOrderMutations(order.id);
   const drafts = draftCount(order);
   const blocked = hasUnavailableDrafts(order);
-  const details = isApiError(send.error) ? send.error.details : [];
+  // The server's detail texts are English; show our own, localised line per dish instead.
+  const details =
+    isApiError(send.error) && send.error.code === 'OUT_OF_STOCK' ? send.error.details : [];
+  const dishNames = new Map(order.items.map((i) => [i.dishId, i.dishName]));
   return (
     <div className="flex flex-col gap-2">
       {send.error ? (
@@ -24,7 +27,7 @@ export const SendButton = ({ order }: { order: Order }) => {
           {details.length > 0 ? (
             <ul className="mt-1 list-disc pl-5">
               {details.map((d, i) => (
-                <li key={i}>{d.message}</li>
+                <li key={i}>{t('outOfStockLine', { name: dishNames.get(d.path) ?? '…' })}</li>
               ))}
             </ul>
           ) : null}

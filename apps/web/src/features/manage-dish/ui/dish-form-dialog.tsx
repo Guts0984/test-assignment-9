@@ -124,8 +124,13 @@ export const DishFormDialog = ({
   const submit = form.handleSubmit((values) => {
     const payload = formToPayload(values);
     const done = { onSuccess: onClose };
-    if (dish) patch.mutate({ id: dish.id, body: payload }, done);
-    else create.mutate(payload, done);
+    if (dish) {
+      // The stock changes by itself while this dialog is open (every sale). Send it only when the manager
+      // actually typed a new number; a rename must never put sold portions back on the shelf.
+      const { stock: _stock, ...withoutStock } = payload;
+      const body = form.formState.dirtyFields.stock ? payload : withoutStock;
+      patch.mutate({ id: dish.id, body }, done);
+    } else create.mutate(payload, done);
   });
 
   return (

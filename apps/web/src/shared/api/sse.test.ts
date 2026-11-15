@@ -43,6 +43,60 @@ describe('subscribeToEvents', () => {
     stop();
     expect(src.closed).toBe(true);
   });
+  it('opens a new stream itself when the browser gave up (server answered with an error status)', () => {
+    vi.useFakeTimers();
+    try {
+      const made: ReturnType<typeof makeFakeSource>[] = [];
+      const h = { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() };
+      const stop = subscribeToEvents(h, () => {
+        const src = makeFakeSource();
+        made.push(src);
+        return src as unknown as EventSource;
+      });
+      expect(made).toHaveLength(1);
+      // readyState CLOSED: EventSource will never reconnect on its own
+      Object.assign(made[0]!, { readyState: 2 });
+      made[0]!.onerror?.();
+      expect(h.onClose).toHaveBeenCalledOnce();
+      expect(made).toHaveLength(1); // not instantly: back off first
+      vi.advanceTimersByTime(2_000);
+      expect(made).toHaveLength(2);
+      // a second failure waits longer (2s → 4s)
+      Object.assign(made[1]!, { readyState: 2 });
+      made[1]!.onerror?.();
+      vi.advanceTimersByTime(3_999);
+      expect(made).toHaveLength(2);
+      vi.advanceTimersByTime(1);
+      expect(made).toHaveLength(3);
+      made[2]!.emit('ready', {});
+      expect(h.onOpen).toHaveBeenCalledOnce();
+      stop();
+      expect(made[2]!.closed).toBe(true);
+      Object.assign(made[2]!, { readyState: 2 });
+      made[2]!.onerror?.();
+      vi.advanceTimersByTime(60_000);
+      expect(made).toHaveLength(3); // after unsubscribe nothing is reopened
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('while the browser is still retrying by itself (CONNECTING) we do not open a second stream', () => {
+    vi.useFakeTimers();
+    try {
+      const made: ReturnType<typeof makeFakeSource>[] = [];
+      subscribeToEvents({ onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }, () => {
+        const src = makeFakeSource();
+        made.push(src);
+        return src as unknown as EventSource;
+      });
+      Object.assign(made[0]!, { readyState: 0 });
+      made[0]!.onerror?.();
+      vi.advanceTimersByTime(120_000);
+      expect(made).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('ignores malformed or unknown payloads instead of crashing', () => {
     const src = makeFakeSource();
     const h = { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() };

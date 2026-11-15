@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dish, Order } from '@app/shared';
@@ -110,7 +110,7 @@ describe('AddItemDialog — modifier rules', () => {
     expect(await screen.findByText('Not enough portions left.')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
-  it('a modifier violation reported by the server is listed too', async () => {
+  it("a modifier violation reported by the server shows our own message, not the server's English text", async () => {
     mockFetch(() =>
       apiError(422, 'VALIDATION_FAILED', 'Invalid modifier selection', [
         { path: 'modifierIds', message: '"Doneness": choose exactly 1 (got 0)' },
@@ -119,10 +119,8 @@ describe('AddItemDialog — modifier rules', () => {
     open();
     await userEvent.click(radio('Medium'));
     await userEvent.click(screen.getByRole('button', { name: /Add to the check/ }));
-    const alert = await screen.findByText(/Doneness.*choose exactly 1/);
-    expect(
-      within(alert.closest('[role="alert"]') as HTMLElement).getByText(/choose exactly 1/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Please check the highlighted fields.')).toBeInTheDocument();
+    expect(screen.queryByText(/choose exactly 1/)).not.toBeInTheDocument();
   });
   it('Ukrainian: rule text, error text and labels', async () => {
     open(vi.fn(), { locale: 'uk' });

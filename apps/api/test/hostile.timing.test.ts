@@ -241,7 +241,7 @@ describe('password hashing cannot be used to starve the server', () => {
     await app.close();
   });
 
-  it('a botnet of 30 IPs logging in at once: extra hashing is refused, health stays responsive', async () => {
+  it('a botnet of 30 IPs logging in at once: hashing is queued, never unbounded; health stays responsive', async () => {
     const botnet = Array.from({ length: 30 }, (_, i) =>
       app.call({
         method: 'POST',
@@ -257,7 +257,6 @@ describe('password hashing cannot be used to starve the server', () => {
       await sleep(10);
     }
     const results = await Promise.all(botnet);
-    expect(count(results, 429)).toBeGreaterThan(0); // hashing concurrency is capped
     expect(results.every((r) => r.status === 401 || r.status === 429)).toBe(true);
     expect(health.every((r) => r.status === 200)).toBe(true);
     expect(
@@ -266,6 +265,32 @@ describe('password hashing cannot be used to starve the server', () => {
         95,
       ),
     ).toBeLessThan(1000);
+  });
+
+  it('one address flooding logins is refused beyond its own small queue, and an honest user on another address still signs in', async () => {
+    const attacker = Array.from({ length: 40 }, () =>
+      app.call({
+        method: 'POST',
+        path: '/auth/login',
+        json: { username: 'waiter1', password: 'wrong-password-' + 'x'.repeat(80) },
+        from: '127.0.2.1',
+      }),
+    );
+    await sleep(30);
+    const started = Date.now();
+    const honest = await app.call({
+      method: 'POST',
+      path: '/auth/login',
+      json: { username: 'waiter2', password: PASSWORDS.waiter2 },
+      from: '127.0.2.2',
+    });
+    const waited = Date.now() - started;
+    const results = await Promise.all(attacker);
+    expect(honest.status).toBe(200);
+    expect(waited).toBeLessThan(3000);
+    // only a handful of the attacker's 40 get to hash at all; the rest are turned away at once
+    expect(count(results, 429)).toBeGreaterThanOrEqual(25);
+    expect(results.every((r) => r.status === 401 || r.status === 429)).toBe(true);
   });
 
   it('and legitimate logins work again as soon as the burst is over', async () => {

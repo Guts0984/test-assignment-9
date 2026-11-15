@@ -80,13 +80,40 @@ describe('SplitPanel', () => {
   });
   it('parts already covered by payments are marked paid and disabled', async () => {
     mockFetch(() => apiError(500, 'INTERNAL'));
-    const half = { ...order, paidAmount: 40830, remaining: 20414 } as Order;
+    const half = {
+      ...order,
+      paidAmount: 40830,
+      remaining: 20414,
+      payments: [
+        { id: 'p1', method: 'card', amount: 20415, tendered: null, change: 0, label: 'Part 1' },
+        { id: 'p2', method: 'card', amount: 20415, tendered: null, change: 0, label: 'Part 2' },
+      ],
+    } as unknown as Order;
     renderApp(<SplitPanel order={half} onPick={vi.fn()} />);
     await userEvent.click(screen.getByLabelText('Split equally'));
     const buttons = within(screen.getByTestId('split-parts')).getAllByRole('button');
     expect(buttons.map((b) => b.textContent)).toEqual(['Paid', 'Paid', 'Pay this part']);
     expect(buttons[0]).toBeDisabled();
     expect(buttons[2]).toBeEnabled();
+  });
+  it('guest 2 paid first: guest 1 is still offered and guest 2 is the one marked paid', async () => {
+    mockFetch(() => apiError(500, 'INTERNAL'));
+    const g2 = {
+      ...order,
+      paidAmount: 12345,
+      remaining: order.total - 12345,
+      payments: [
+        { id: 'p1', method: 'card', amount: 20000, tendered: null, change: 0, label: 'Guest 2' },
+      ],
+    } as unknown as Order;
+    renderApp(<SplitPanel order={g2} onPick={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText('By guest'));
+    const rows = within(screen.getByTestId('split-parts')).getAllByRole('listitem');
+    const state = (row: HTMLElement) => within(row).getByRole('button');
+    expect(state(rows[0]!)).toBeEnabled();
+    expect(state(rows[0]!)).toHaveTextContent('Pay this part');
+    expect(state(rows[1]!)).toBeDisabled();
+    expect(state(rows[1]!)).toHaveTextContent('Paid');
   });
   it('the number of parts is validated at the field (2…50)', async () => {
     const { fn } = mockFetch(() => apiError(500, 'INTERNAL'));
@@ -118,11 +145,38 @@ describe('SplitPanel', () => {
 });
 
 describe('paidPartFlags', () => {
-  it('marks parts as paid while the running sum fits inside what was paid', () => {
-    const p = [{ total: 20415 }, { total: 20415 }, { total: 20414 }];
-    expect(paidPartFlags(p, 0)).toEqual([false, false, false]);
-    expect(paidPartFlags(p, 20415)).toEqual([true, false, false]);
-    expect(paidPartFlags(p, 40829)).toEqual([true, false, false]);
-    expect(paidPartFlags(p, 61244)).toEqual([true, true, true]);
+  const parts = [
+    { total: 5000, label: 'Guest 1' },
+    { total: 10000, label: 'Guest 2' },
+  ];
+  const pay = (label: string | null, amount: number) => ({ label, amount });
+
+  it('payments without a label cover the parts in order', () => {
+    const p = [
+      { total: 20415, label: 'Part 1' },
+      { total: 20415, label: 'Part 2' },
+      { total: 20414, label: 'Part 3' },
+    ];
+    expect(paidPartFlags(p, [])).toEqual([false, false, false]);
+    expect(paidPartFlags(p, [pay(null, 20415)])).toEqual([true, false, false]);
+    expect(paidPartFlags(p, [pay(null, 40829)])).toEqual([true, false, false]);
+    expect(paidPartFlags(p, [pay(null, 61244)])).toEqual([true, true, true]);
+  });
+
+  it('a part is paid by the payment that carries ITS label, whatever the order', () => {
+    // guest 2 (100,00) paid first: guest 1 must still be payable
+    expect(paidPartFlags(parts, [pay('Guest 2', 10000)])).toEqual([false, true]);
+    expect(paidPartFlags(parts, [pay('Guest 2', 10000), pay('Guest 1', 5000)])).toEqual([
+      true,
+      true,
+    ]);
+  });
+
+  it('a payment smaller than the part does not mark it paid', () => {
+    expect(paidPartFlags(parts, [pay('Guest 2', 4000)])).toEqual([false, false]);
+  });
+
+  it('labels from another split mode fall back to the in-order rule', () => {
+    expect(paidPartFlags(parts, [pay('Part 1', 5000)])).toEqual([true, false]);
   });
 });

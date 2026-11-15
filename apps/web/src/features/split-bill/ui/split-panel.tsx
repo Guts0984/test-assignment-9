@@ -56,18 +56,32 @@ export const localSplit = (
 };
 
 /**
- * Which parts are already covered by the payments so far, assuming parts are paid in order.
- * (The server keeps no per-part state: a split is just a way to pick the next amount.)
+ * Which parts are already covered by the payments so far. The server keeps no per-part state: a split
+ * is only a way to pick the next amount, and the label of the picked part is stored on the payment.
+ * So a part is paid when a payment carries its label; payments that match no part (paid without a
+ * label, or while another split mode was shown) are spread over the remaining parts in order.
  */
 export const paidPartFlags = (
-  parts: readonly { total: number }[],
-  paidAmount: number,
+  parts: readonly { total: number; label: string }[],
+  payments: readonly { label: string | null; amount: number }[],
 ): boolean[] => {
-  let running = 0;
-  return parts.map((p) => {
-    running += p.total;
-    return running <= paidAmount;
+  const flags = parts.map(() => false);
+  const used = payments.map(() => false);
+  parts.forEach((p, i) => {
+    const at = payments.findIndex((x, j) => !used[j] && x.label === p.label && x.amount >= p.total);
+    if (at >= 0) {
+      flags[i] = true;
+      used[at] = true;
+    }
   });
+  let spare = payments.reduce((sum, x, j) => (used[j] ? sum : sum + x.amount), 0);
+  for (const [i, p] of parts.entries()) {
+    if (flags[i]) continue;
+    if (spare < p.total) break; // parts are covered in order: stop at the first one that is not
+    flags[i] = true;
+    spare -= p.total;
+  }
+  return flags;
 };
 
 export const SplitPanel = ({
@@ -102,7 +116,14 @@ export const SplitPanel = ({
   // Shown at once from the local calculation; replaced by the server's answer when it arrives, and
   // kept if the server cannot be reached (the numbers come from the same shared functions).
   const result = body ? (query.data ?? localSplit(order, body)) : undefined;
-  const paid = result ? paidPartFlags(result.parts, order.paidAmount) : [];
+  const partLabel = (p: { guest: number | null; index: number }): string =>
+    p.guest !== null ? common('guest', { n: p.guest }) : t('part', { n: p.index });
+  const paid = result
+    ? paidPartFlags(
+        result.parts.map((p) => ({ total: p.total, label: partLabel(p) })),
+        order.payments,
+      )
+    : [];
 
   return (
     <section aria-labelledby="split-title" className="flex flex-col gap-3">
@@ -164,23 +185,14 @@ export const SplitPanel = ({
                 key={p.index}
                 className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
               >
-                <span>
-                  {p.guest !== null ? common('guest', { n: p.guest }) : t('part', { n: p.index })}
-                </span>
+                <span>{partLabel(p)}</span>
                 <span className="flex items-center gap-3">
                   <strong data-testid="part-total">{formatMoney(p.total, locale)}</strong>
                   <Button
                     size="sm"
                     variant="outline"
                     disabled={paid[i] || order.status === 'paid'}
-                    onClick={() =>
-                      onPick(
-                        Math.min(p.total, order.remaining),
-                        p.guest !== null
-                          ? common('guest', { n: p.guest })
-                          : t('part', { n: p.index }),
-                      )
-                    }
+                    onClick={() => onPick(Math.min(p.total, order.remaining), partLabel(p))}
                   >
                     {paid[i] ? t('partPaid') : t('payThis')}
                   </Button>

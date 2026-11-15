@@ -7,7 +7,9 @@ import { unauthenticated } from '../common/errors';
 import { DB, ENV, RATE_LIMITERS } from '../common/tokens';
 import type { Env } from '../env';
 import type { Limiters } from '../rate-limit/limiters';
-import { createSession, revokeSession } from './session';
+import { type Gate, createGate } from '../rate-limit/gate';
+import { EventsService } from '../events/events.service';
+import { createSession, findSession, revokeSession } from './session';
 
 type UserRow = {
   id: string;
@@ -22,13 +24,24 @@ const tooMany = (retryAfterSec: number, message = 'Too many attempts, try again 
 
 @Injectable()
 export class AuthService {
-  private inFlight = 0;
+  private readonly gate: Gate;
 
   constructor(
     @Inject(DB) private readonly handle: DbHandle,
     @Inject(ENV) private readonly env: Env,
     @Inject(RATE_LIMITERS) private readonly limiters: Limiters,
-  ) {}
+    @Inject(EventsService) private readonly events: EventsService,
+  ) {
+    const max = env.LOGIN_MAX_CONCURRENCY;
+    this.gate = createGate({
+      max,
+      // One address may use at most half of the hashing slots and queue a handful of attempts.
+      perKeyRunning: Math.max(1, Math.floor(max / 2)),
+      perKeyWaiting: 8,
+      maxWaiting: max * 16,
+      waitMs: 3000,
+    });
+  }
 
   async login(body: LoginBody, ipKey: string): Promise<{ token: string; me: Me }> {
     // 1. cheap, in-memory checks first (no hashing, no database)
@@ -38,9 +51,9 @@ export class AuthService {
     if (!byUser.allowed) throw tooMany(byUser.retryAfterSec);
 
     // 2. scrypt is expensive: cap how many run at once so a flood cannot starve the rest of the API
-    if (this.inFlight >= this.env.LOGIN_MAX_CONCURRENCY)
-      throw tooMany(1, 'Server is busy, retry shortly');
-    this.inFlight++;
+    //    Waiting is fair per IP: one address can neither fill the slots nor the queue.
+    const release = await this.gate.acquire(ipKey);
+    if (!release) throw tooMany(1, 'Server is busy, retry shortly');
     try {
       const result = await this.handle.db.execute<UserRow>(sql`
         select id, username, display_name, role::text as role, password_hash
@@ -62,11 +75,15 @@ export class AuthService {
         },
       };
     } finally {
-      this.inFlight--;
+      release();
     }
   }
 
   async logout(token: string | undefined): Promise<void> {
-    if (token) await revokeSession(this.handle.db, token);
+    if (!token) return;
+    const found = await findSession(this.handle.db, token);
+    await revokeSession(this.handle.db, token);
+    // A stream that is already open must not outlive the session that opened it.
+    if (found) this.events.closeSession(found.sessionId);
   }
 }

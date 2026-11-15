@@ -184,7 +184,7 @@ describe('adding items', () => {
   });
   it('comment limits and control characters are rejected', async () => {
     const o = await open(s.waiter1, await freshTable());
-    for (const comment of ['x'.repeat(201), 'a\nb', 'a\u0000b']) {
+    for (const comment of ['x'.repeat(201), 'a\u0007b', 'a\u0000b']) {
       const r = await s.waiter1.post(`/orders/${o.id}/items`, {
         dishId: s.world.soup.id,
         guest: 1,

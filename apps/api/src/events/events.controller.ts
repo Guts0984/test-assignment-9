@@ -23,7 +23,9 @@ export class EventsController {
     if (!req.user) throw unauthenticated();
     // Throws 429 *before* the stream starts when the caller has too many open streams.
     const release = this.events.acquire(clientKey(req.ip), req.user.id);
+    const sessionId = req.sessionId ?? '';
     return new Observable<MessageEvent>((subscriber) => {
+      const forget = this.events.track(sessionId, () => subscriber.complete());
       subscriber.next({ type: 'ready', data: {} });
       const unsubscribe = this.events.subscribe((e) => subscriber.next({ type: e.type, data: e }));
       const heartbeat = setInterval(
@@ -32,6 +34,7 @@ export class EventsController {
       );
       return () => {
         clearInterval(heartbeat);
+        forget();
         unsubscribe();
       };
     }).pipe(finalize(release));

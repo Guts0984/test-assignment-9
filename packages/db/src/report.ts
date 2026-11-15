@@ -18,7 +18,7 @@ export const revenueReport = async (
   const days = await db.execute<DayRow>(sql`
     select day::text as day, sum(total)::bigint as revenue, count(*)::bigint as orders
     from orders
-    where status = 'paid' and day between ${from}::date and ${to}::date
+    where status = 'paid' and total > 0 and day between ${from}::date and ${to}::date
     group by day
     order by day
   `);
@@ -31,7 +31,7 @@ export const revenueReport = async (
     from orders o
     join order_items oi on oi.order_id = o.id
     join dishes d on d.id = oi.dish_id
-    where o.status = 'paid'
+    where o.status = 'paid' and o.total > 0
       and o.day between ${from}::date and ${to}::date
       and oi.status::text in (${statuses})
     group by d.id, d.name

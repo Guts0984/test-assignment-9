@@ -24,7 +24,14 @@ describe('kitchen timer', () => {
 
 describe('report period in the URL', () => {
   const params = (q: string) => new URLSearchParams(q);
-  const today = new Date(2025, 5, 15); // 15 June 2025 (local)
+  const today = new Date('2025-06-15T09:00:00Z'); // 15 June 2025 in Kyiv
+  it('the default period follows the Kyiv day, not the device clock', () => {
+    // 22:30 UTC on 14 June is already 01:30 on 15 June in Kyiv
+    expect(lastDays(1, new Date('2025-06-14T22:30:00Z'))).toEqual({
+      from: '2025-06-15',
+      to: '2025-06-15',
+    });
+  });
   it('no parameters → the default last 30 days', () => {
     const r = readPeriod(params(''), today);
     expect(r.problem).toBeNull();

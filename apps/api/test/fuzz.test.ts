@@ -65,6 +65,7 @@ const templates = (): Record<string, unknown> => ({
     expectedVersion: 1,
   },
   'POST /orders/:id/send': { expectedVersion: 1 },
+  'POST /orders/:id/close': { expectedVersion: 1 },
   'POST /orders/:id/split': { mode: 'equal', parts: 3 },
   'POST /orders/:id/payments': {
     id: uuid,
@@ -118,7 +119,7 @@ const junk = fc.oneof(
 
 /** Mutates a valid body: replace values, drop keys, add keys, change types. */
 const mutate = (base: unknown): fc.Arbitrary<unknown> =>
-  base && typeof base === 'object' && !Array.isArray(base)
+  base && typeof base === 'object' && !Array.isArray(base) && Object.keys(base).length > 0
     ? fc
         .tuple(
           fc.array(fc.tuple(fc.constantFrom(...Object.keys(base)), junk), { maxLength: 3 }),

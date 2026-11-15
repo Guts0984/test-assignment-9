@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { Order } from '@app/shared';
 import { groupByGuest } from '@/entities/order/model';
 import { StatusBadge } from '@/entities/order/ui/status-badge';
+import { CloseEmptyButton } from '@/features/close-order';
 import { ItemActions } from '@/features/order-item-actions';
 import { SendButton } from '@/features/send-order';
 import type { Locale } from '@/shared/i18n/routing';
@@ -114,9 +115,13 @@ export const OrderPanel = ({
       {editable && order.status === 'open' ? (
         <>
           <SendButton order={order} />
-          <Button variant="secondary" size="lg" onClick={onCheckout}>
-            {t('checkout')}
-          </Button>
+          {order.total === 0 && order.payments.length === 0 ? (
+            <CloseEmptyButton order={order} />
+          ) : (
+            <Button variant="secondary" size="lg" onClick={onCheckout}>
+              {t('checkout')}
+            </Button>
+          )}
         </>
       ) : null}
     </section>

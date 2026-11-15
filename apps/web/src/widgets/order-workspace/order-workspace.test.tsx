@@ -175,14 +175,18 @@ describe('OrderWorkspace', () => {
     serve(state, (url, init) =>
       url.endsWith('/send') && init?.method === 'POST'
         ? apiError(409, 'OUT_OF_STOCK', 'x', [
-            { path: id(1), message: 'Last lamb: 0 left, 1 requested' },
+            { path: id(301), message: 'Last lamb: 0 left, 1 requested' },
           ])
         : undefined,
     );
     renderApp(<OrderWorkspace orderId={state.order.id} />);
     await userEvent.click(await screen.findByRole('button', { name: /Send to kitchen/ }));
     expect(await screen.findByText('Not enough portions left.')).toBeInTheDocument();
-    expect(screen.getByText('Last lamb: 0 left, 1 requested')).toBeInTheDocument();
+    // our own wording (the server's English detail text is not shown), with the dish name from the check
+    expect(
+      screen.getByText('Dish 1: not enough portions, or no longer on the menu'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/0 left, 1 requested/)).not.toBeInTheDocument();
     expect(await screen.findByText(/changed elsewhere and has been reloaded/)).toBeInTheDocument();
   });
   it('another waiter’s check is read-only: no actions, an explanation', async () => {

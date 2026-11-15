@@ -16,6 +16,7 @@ export class EventsService {
   private readonly listeners = new Set<Listener>();
   private readonly perIp = new Map<string, number>();
   private readonly perUser = new Map<string, number>();
+  private readonly bySession = new Map<string, Set<() => void>>();
 
   constructor(@Inject(ENV) private readonly env: Env) {}
 
@@ -38,6 +39,22 @@ export class EventsService {
 
   get subscriberCount(): number {
     return this.listeners.size;
+  }
+
+  /** Remembers an open stream of a session so that logging out can end it. Returns the forget function. */
+  track(sessionId: string, close: () => void): () => void {
+    const set = this.bySession.get(sessionId) ?? new Set<() => void>();
+    set.add(close);
+    this.bySession.set(sessionId, set);
+    return () => {
+      set.delete(close);
+      if (set.size === 0 && this.bySession.get(sessionId) === set) this.bySession.delete(sessionId);
+    };
+  }
+
+  /** Ends every open stream of a session (called on logout). */
+  closeSession(sessionId: string): void {
+    for (const close of [...(this.bySession.get(sessionId) ?? [])]) close();
   }
 
   /** Reserves an SSE slot for this IP and user; returns the release function. */

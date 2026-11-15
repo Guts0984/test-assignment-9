@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { asRole, payRemainingByCard, sendToKitchen } from './helpers';
+import { asRole, openCheck, payRemainingByCard, sendToKitchen } from './helpers';
 
 test('keyboard-only sign in, with errors at the fields', async ({ page }) => {
   await page.goto('/en/login');
@@ -158,5 +158,29 @@ test('manager report: the period lives in the URL (survives a reload), presets w
     await expect(manager.page.getByTestId('report-total')).toHaveText(/,\d\d\s₴$/);
   } finally {
     await manager.context.close();
+  }
+});
+
+test('a check opened by mistake can be closed, and the table is free again', async ({
+  browser,
+}) => {
+  const waiter = await asRole(browser, 'waiter2');
+  try {
+    await openCheck(waiter.page, 2);
+    const order = waiter.page.url().split('/').pop();
+    await waiter.page.getByRole('button', { name: 'Close empty check' }).click();
+    await waiter.page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Close check', exact: true })
+      .click();
+    await waiter.page.waitForURL('**/en/tables');
+    const check = await waiter.context.request.get(`/api/orders/${order}`);
+    expect((await check.json()).status).toBe('paid');
+    // and there is no open check left on the waiter's side
+    const body = await (await waiter.context.request.get('/api/tables')).json();
+    const tables: { orderId: string | null }[] = Array.isArray(body) ? body : body.tables;
+    expect(tables.some((t) => t.orderId === order)).toBe(false);
+  } finally {
+    await waiter.context.close();
   }
 });

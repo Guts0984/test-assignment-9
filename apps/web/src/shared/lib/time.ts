@@ -16,10 +16,3 @@ export const formatElapsed = (fromIso: string, now: number): string => {
 /** Is an item that has waited since `sentAtIso` overdue? (assignment: more than 15 minutes) */
 export const isOverdue = (sentAtIso: string, now: number, limitMinutes: number): boolean =>
   now - Date.parse(sentAtIso) > limitMinutes * 60_000;
-
-export const toDateInput = (d: Date): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};

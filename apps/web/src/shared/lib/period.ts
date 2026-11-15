@@ -1,15 +1,15 @@
-import { RevenueQuery, inclusiveDays, LIMITS } from '@app/shared';
-import { toDateInput } from './time';
+import { LIMITS, RevenueQuery, addDays, dayOf, inclusiveDays } from '@app/shared';
+
+/** The restaurant's business day is the Kyiv one, whatever time zone this device is set to. */
+export const RESTAURANT_TZ = 'Europe/Kyiv';
 
 export type Period = { from: string; to: string };
 export type PeriodProblem = 'invalid' | 'backwards' | 'tooLong';
 
 /** `days` days ending today (inclusive): 7 → today-6 … today. */
-export const lastDays = (days: number, today: Date): Period => {
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
-  return { from: toDateInput(start), to: toDateInput(end) };
+export const lastDays = (days: number, now: Date): Period => {
+  const to = dayOf(now, RESTAURANT_TZ);
+  return { from: addDays(to, -(days - 1)), to };
 };
 
 export const DEFAULT_DAYS = 30;

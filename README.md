@@ -128,7 +128,7 @@ used by the API and by the web app, so the total on the screen is computed by th
   using the **largest-remainder method** (ties go to the lower guest number), so the parts again add up to the total exactly.
   (`amount × weight` can exceed 2^53, so that step uses `BigInt`.)
 - **Change** (cash) = tendered − amount, stored with the payment. Cards are recorded by hand (no terminal integration).
-- A check is `paid` when the sum of its payments equals the total; several payments are allowed. Overpaying is refused.
+- A check is `paid` when the sum of its payments equals the total; several payments are allowed. Overpaying is refused, and once any money has been taken an already-sent item can no longer be cancelled (`409 ORDER_PARTIALLY_PAID`), so the total can never drop below what was paid.
 - Limits (so that every value fits Postgres `integer`): price/surcharge ≤ 100 000,00; payment/tender ≤ 20 000 000,00; a
   check's subtotal ≤ 18 000 000,00. Beyond that the API answers 400/422, never 500.
 
@@ -169,7 +169,7 @@ amount. The UI marks parts as paid by comparing the running sum of parts with wh
 `orders.version` is an optimistic lock. Every mutating call (`items`, `send`, `payments`, item `DELETE`) must carry
 `expectedVersion` and runs `UPDATE orders SET version = version + 1 WHERE id = $1 AND version = $2 AND status = 'open'`.
 The statement also takes the row lock, so it serialises with everything else that touches the same check. Zero rows →
-`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable. The web app queues mutations of one check
+`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable: item changes, serving, and the cook's transitions are all refused with `409 ORDER_PAID`, and paid checks disappear from the kitchen queue. The web app queues mutations of one check
 (TanStack Query `scope`) so that rapid clicks do not conflict with themselves, and after a conflict reloads the check
 and shows a notice.
 
@@ -191,8 +191,11 @@ open check) rolls the increment back as well, so numbers are gap-free and never 
 - **Validation**: every input is parsed with the Zod schemas from `packages/shared` (strict — unknown keys are rejected); path ids
   are UUIDs; one error envelope `{ error: { code, message, requestId, details? } }`; bad input is `4xx`, never `5xx`.
 - **Rate limiting (no Redis)**: in-process token buckets per client IP (memory-bounded LRU; IPv6 limited per /64), stricter
-  limits on login per IP and per **IP + username** (never by username alone, or anyone could lock out a victim), a cap on
-  concurrent password hashing, and SSE connection caps. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES` (the nginx
+  limits on login per IP and per **IP + username** (never by username alone, or anyone could lock out a victim), a **fair**
+  gate on concurrent password hashing (extra logins wait in a short queue; one address may use at most half of the slots and queue
+  8 attempts, so a flood from one address, or a few, cannot make everyone else's login fail), and SSE connection caps. A botnet of
+  many addresses can still slow logins down (each address is limited, but they add up); that is the limit of IP-based protection
+  without an external service. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES` (the nginx
   container); nginx _overwrites_ the header with the real peer and adds its own edge limits, size limits and timeouts.
 
 ## Real-time
@@ -200,7 +203,8 @@ open check) rolls the increment back as well, so numbers are gap-free and never 
 `GET /events` is Server-Sent Events. Events carry ids only; the web app invalidates exactly the cached queries they affect
 (a check, the kitchen queue, tables, the menu). Events are emitted **after** the database transaction commits. After a
 reconnect everything is refetched (missed events are not replayed), and when the stream is down screens fall back to polling.
-nginx does not buffer the stream.
+nginx does not buffer the stream. Logging out closes that session's open streams. If the server answers the stream with an error
+(restart, stream cap) the browser gives up for good, so the web app opens a new stream itself with a growing delay.
 
 ## Decisions on ambiguous points
 
@@ -227,7 +231,9 @@ nginx does not buffer the stream.
 
 - The rate limiter and the SSE bus live in the API process's memory (Redis and queues are forbidden by the assignment), so the API
   is designed to run as **one instance**; a restart resets counters.
-- There is no "void check" or "delete check" operation; an open check with no billable items keeps its table occupied.
+- A check with **nothing to bill** (opened by mistake, or every item cancelled) is closed with `POST /orders/:id/close`, which frees
+  the table; it counts as neither a sale nor a report row. There is no "void" for a check that already has billable items or payments.
+- There is no way to **restore an archived dish** (no un-archive in the API or the UI); create it again.
 - The split is stateless: parts are not stored per guest, payments are just amounts (optionally labelled).
 - HTTPS is not terminated in this stack (set `COOKIE_SECURE=true` behind a TLS terminator).
 - The Swagger UI is public.

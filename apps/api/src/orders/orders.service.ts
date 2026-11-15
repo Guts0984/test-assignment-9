@@ -252,6 +252,17 @@ export class OrdersService {
           .delete(orderItems)
           .where(and(eq(orderItems.id, itemId), eq(orderItems.status, 'draft')));
       } else if (item.status === 'sent') {
+        // Once money has been taken the total must never drop below what was paid: refuse.
+        const [paid] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(payments)
+          .where(eq(payments.orderId, orderId));
+        if ((paid?.n ?? 0) > 0) {
+          throw conflict(
+            'Part of this check is already paid; items that were sent can no longer be cancelled',
+            'ORDER_PARTIALLY_PAID',
+          );
+        }
         // Compare-and-set on the status: if the cook starts this item at the same moment, exactly one
         // of the two wins. The loser gets a 409 and nothing (stock included) changes.
         const cancelled = await tx
@@ -347,6 +358,10 @@ export class OrdersService {
   async serve(user: AuthUser, orderId: string, itemId: string): Promise<Order> {
     const head = await getHead(this.db, orderId);
     assertOwner(user, head);
+    if (head.status !== 'open') {
+      throw conflict('This check is already paid and can no longer change', 'ORDER_PAID');
+    }
+    // The status test sits in the UPDATE itself, so a payment landing at this very moment wins cleanly.
     const rows = await this.db
       .update(orderItems)
       .set({ status: 'served', servedAt: new Date() })
@@ -355,6 +370,7 @@ export class OrdersService {
           eq(orderItems.id, itemId),
           eq(orderItems.orderId, orderId),
           eq(orderItems.status, 'ready'),
+          sql`exists (select 1 from orders o where o.id = ${orderItems.orderId} and o.status = 'open')`,
         ),
       )
       .returning({ id: orderItems.id });
@@ -374,6 +390,35 @@ export class OrdersService {
       { type: 'table.changed', tableId: head.tableId },
     );
     return requireOrder(this.db, orderId);
+  }
+
+  /**
+   * Closes a check with nothing to bill (opened by mistake, or every item cancelled) so the table is
+   * freed. Refused when anything is billable or any money was taken. Draft items are discarded.
+   */
+  async closeEmpty(user: AuthUser, orderId: string, expectedVersion: number): Promise<Order> {
+    const events: AppEvent[] = [];
+    const order = await this.db.transaction(async (tx) => {
+      const head = await getHead(tx, orderId);
+      assertOwner(user, head);
+      await bumpVersion(tx, orderId, expectedVersion);
+      const current = await requireOrder(tx, orderId);
+      const totals = orderTotals(current.items, current.guests);
+      if (totals.total > 0 || current.payments.length > 0) {
+        throw conflict('This check has items to bill; pay it instead', 'NOT_EMPTY');
+      }
+      await tx
+        .delete(orderItems)
+        .where(and(eq(orderItems.orderId, orderId), eq(orderItems.status, 'draft')));
+      await tx
+        .update(orders)
+        .set({ status: 'paid', subtotal: 0, serviceFee: 0, total: 0, paidAt: new Date() })
+        .where(eq(orders.id, orderId));
+      events.push({ type: 'table.changed', tableId: head.tableId });
+      return requireOrder(tx, orderId);
+    });
+    this.events.emit(...events);
+    return order;
   }
 
   // ---- split / pay ------------------------------------------------------------------------------
