@@ -1,3 +1,4 @@
+import { describe, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
@@ -267,3 +268,25 @@ export const percentile = (xs: number[], p: number): number => {
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))] ?? 0;
 };
+
+/**
+ * Some tests pretend to be many clients by binding extra loopback addresses (127.0.0.2, 127.0.1.7 …).
+ * Linux routes the whole 127/8 block to loopback; macOS only has 127.0.0.1 (bind → EADDRNOTAVAIL). The
+ * per-IP tests need those addresses, so they are skipped (visibly) where they do not exist.
+ */
+export const hasLoopbackAliases: boolean = await new Promise<boolean>((resolve) => {
+  const server = net.createServer((c) => c.destroy());
+  server.once('error', () => resolve(false));
+  server.listen(0, '127.0.0.1', () => {
+    const { port } = server.address() as net.AddressInfo;
+    const sock = net.connect({ host: '127.0.0.1', port, localAddress: '127.0.0.2' });
+    const done = (ok: boolean) => {
+      sock.destroy();
+      server.close(() => resolve(ok));
+    };
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+  });
+});
+export const describeNet = hasLoopbackAliases ? describe : describe.skip;
+export const itNet = hasLoopbackAliases ? it : it.skip;

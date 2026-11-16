@@ -129,6 +129,19 @@ describe('SplitPanel', () => {
     expect(within(rows[0]!).getByRole('button')).toBeEnabled();
     expect(within(rows[1]!).getByRole('button')).toBeDisabled();
   });
+  it('changing the mode or the number of parts drops the part that was picked before', async () => {
+    mockFetch(() => apiError(500, 'INTERNAL'));
+    const onReset = vi.fn();
+    renderApp(<SplitPanel order={order} onPick={vi.fn()} onReset={onReset} />);
+    await userEvent.click(screen.getByLabelText('Split equally'));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    const input = screen.getByLabelText('Number of parts');
+    await userEvent.type(input, '4');
+    expect(onReset.mock.calls.length).toBeGreaterThan(1);
+    const before = onReset.mock.calls.length;
+    await userEvent.click(screen.getByLabelText('By guest'));
+    expect(onReset.mock.calls.length).toBe(before + 1);
+  });
   it('the number of parts is validated at the field (2…50)', async () => {
     const { fn } = mockFetch(() => apiError(500, 'INTERNAL'));
     renderApp(<SplitPanel order={order} onPick={vi.fn()} />);

@@ -146,7 +146,7 @@ amount. The UI marks parts as paid by comparing the running sum of parts with wh
   Dishes are processed in id order so that two concurrent sends cannot deadlock.
 - Stock reaching 0 puts the dish on the **stop-list** (`stopListed` in the API, an SSE event to everyone). Drafts of that dish
   stay on the check but are flagged "no longer available" and block _send_ until removed.
-- Cancelling a `sent` item gives the portion back (`stock + 1`, only if stock is not `NULL`). Cancelling is a
+- Cancelling a `sent` item gives the portion back — **only if it really took one** (the dish was limited when it was sent) **and nobody has set the stock by hand since**. Every manual stock change (the stop-list, the manager's number) raises the dish's `stock_epoch`; an item remembers the epoch it took its portion under, and a cancel returns the portion only while the epoch is unchanged. So a manager's stop-list is never undone by a cancel, and an unlimited dish never grows a stock number. Cancelling is a
   compare-and-set on the item status (`WHERE status = 'sent'`), so a cancel racing against the cook's click has exactly
   one winner, and a double cancel returns the portion once. After `cooking` cancelling is refused (`409`).
 - Draft items do **not** reserve stock — the assignment decrements on _send_.
@@ -169,7 +169,7 @@ amount. The UI marks parts as paid by comparing the running sum of parts with wh
 `orders.version` is an optimistic lock. Every mutating call (`items`, `send`, `payments`, item `DELETE`) must carry
 `expectedVersion` and runs `UPDATE orders SET version = version + 1 WHERE id = $1 AND version = $2 AND status = 'open'`.
 The statement also takes the row lock, so it serialises with everything else that touches the same check. Zero rows →
-`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable: item changes, serving, and the cook's transitions are all refused with `409 ORDER_PAID`. The payment rule keeps this safe for the kitchen: a check is only paid once **nothing is still being prepared** (every item is ready or served, otherwise `409 ITEMS_IN_PROGRESS`), so food never vanishes from the kitchen screen or is left undelivered because the table was settled early. (The price: a guest cannot settle before the food is ready.) The web app queues mutations of one check
+`409 VERSION_CONFLICT` (stale) or `409 ORDER_PAID`. A paid check is immutable: item changes, serving, and the cook's transitions are all refused with `409 ORDER_PAID`. The payment rule keeps this safe for the kitchen and the floor: a check is only paid once **every item is served or cancelled** (otherwise `409 ITEMS_IN_PROGRESS`, naming the items), so food never vanishes from the kitchen screen, never stays "ready" on a table that looks free, and nobody has to remember it. (The price: a guest cannot settle before the last dish has been served; the Pay dialog says which items are missing.) A check **closed without a bill** has its own status, `closed` (no `paid_at`, not a sale). The web app queues mutations of one check
 (TanStack Query `scope`) so that rapid clicks do not conflict with themselves, and after a conflict reloads the check
 and shows a notice.
 
@@ -178,7 +178,7 @@ and shows a notice.
 `order_counters(day, last)` plus `INSERT … ON CONFLICT (day) DO UPDATE SET last = last + 1 RETURNING last`, executed in the
 **same transaction** as the order insert. The row lock serialises concurrent openers; a rollback (e.g. the table already has an
 open check) rolls the increment back as well, so numbers are gap-free and never repeat. `UNIQUE (day, number)` backs it up.
-"Day" is the restaurant's business day in `RESTAURANT_TZ` (default `Europe/Kyiv`).
+"Day" is the restaurant's **business day**: it starts at `RESTAURANT_DAY_START_HOUR` (default 4) in `RESTAURANT_TZ` (default `Europe/Kyiv`), not at midnight, so a shift that runs past midnight keeps one run of numbers (set the hour to 0 for plain calendar days). The web app takes "today" from the public `GET /config` instead of its own clock or a hardcoded zone.
 
 ## Security
 
@@ -234,6 +234,9 @@ nginx does not buffer the stream. Logging out closes that session's open streams
 - A check with **nothing to bill** (opened by mistake, or every item cancelled) is closed with `POST /orders/:id/close`, which frees
   the table; it counts as neither a sale nor a report row. There is no "void" for a check that already has billable items or payments.
 - There is no way to **restore an archived dish** (no un-archive in the API or the UI); create it again.
+- Dish names, categories and modifier names are **data entered by the manager in one language** (the demo seed is in English); only the interface is translated. Translating the menu itself would need per-language columns.
+- The per-IP stream cap defaults to 60 (tablets behind one NAT); an open stream is re-checked against the session on every heartbeat (`SSE_HEARTBEAT_MS`, 15 s), so expiry, logout elsewhere or a deactivated user end it.
+- The per-IP tests (`hostile`, the stream cap) bind extra loopback addresses (`127.0.0.x`); where the OS has only `127.0.0.1` (macOS) they are skipped, not failed.
 - The split is stateless: parts are not stored per guest, payments are amounts plus an optional language-neutral label (`guest:2`, `part:3`) saying which part they paid.
 - HTTPS is not terminated in this stack (set `COOKIE_SECURE=true` behind a TLS terminator).
 - The Swagger UI is public.

@@ -13,7 +13,9 @@ export const HomePage = () => {
   const me = useMe();
   useEffect(() => {
     if (me.isLoading) return;
-    router.replace(me.data ? homeFor(me.data.role) : '/login');
+    // Only a definite "not signed in" (null) goes to the login page; a failed call (undefined) waits and retries.
+    if (me.data) router.replace(homeFor(me.data.role));
+    else if (me.data === null) router.replace('/login');
   }, [me.isLoading, me.data, router]);
   return (
     <div className="flex min-h-screen items-center justify-center">

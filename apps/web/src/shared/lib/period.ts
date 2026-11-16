@@ -1,16 +1,13 @@
-import { LIMITS, RevenueQuery, addDays, dayOf, inclusiveDays } from '@app/shared';
-
-/** The restaurant's business day is the Kyiv one, whatever time zone this device is set to. */
-export const RESTAURANT_TZ = 'Europe/Kyiv';
+import { LIMITS, RevenueQuery, addDays, inclusiveDays } from '@app/shared';
 
 export type Period = { from: string; to: string };
 export type PeriodProblem = 'invalid' | 'backwards' | 'tooLong';
 
-/** `days` days ending today (inclusive): 7 → today-6 … today. */
-export const lastDays = (days: number, now: Date): Period => {
-  const to = dayOf(now, RESTAURANT_TZ);
-  return { from: addDays(to, -(days - 1)), to };
-};
+/** `days` days ending `today` (inclusive): 7 → today-6 … today. `today` is the server's business day. */
+export const lastDays = (days: number, today: string): Period => ({
+  from: addDays(today, -(days - 1)),
+  to: today,
+});
 
 export const DEFAULT_DAYS = 30;
 
@@ -20,7 +17,7 @@ export const DEFAULT_DAYS = 30;
  */
 export const readPeriod = (
   params: { get: (name: string) => string | null },
-  today: Date,
+  today: string,
 ): { period: Period; problem: PeriodProblem | null } => {
   const fallback = lastDays(DEFAULT_DAYS, today);
   const from = params.get('from');

@@ -7,10 +7,12 @@ import { type ReactNode, useEffect } from 'react';
 import type { Role } from '@app/shared';
 import { logout } from '@/entities/session/api';
 import { homeFor, useMe } from '@/entities/session/model';
-import { RealtimeProvider, useIsLive } from '@/features/realtime-sync';
+import { useIsLive } from '@/features/realtime-sync';
 import { LocaleSwitcher } from '@/features/switch-locale';
 import { Link, usePathname, useRouter } from '@/shared/i18n/navigation';
 import { cn } from '@/shared/lib/cn';
+import { useErrorMessage } from '@/shared/lib/error-message';
+import { Alert } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
 import { Spinner } from '@/shared/ui/spinner';
 
@@ -93,16 +95,29 @@ const Header = ({ role, name }: { role: Role; name: string }) => {
 export const AppShell = ({ roles, children }: { roles: readonly Role[]; children: ReactNode }) => {
   const t = useTranslations('common');
   const router = useRouter();
+  const message = useErrorMessage();
   const me = useMe();
+  // null = the server said "not signed in" (401); undefined = we do not know yet (loading, or the call failed)
   const user = me.data;
   const allowed = user ? roles.includes(user.role) : false;
 
   useEffect(() => {
     if (me.isLoading) return;
-    if (!user) router.replace('/login');
-    else if (!allowed) router.replace(homeFor(user.role));
+    if (user === null) router.replace('/login');
+    else if (user && !allowed) router.replace(homeFor(user.role));
   }, [me.isLoading, user, allowed, router]);
 
+  // A failed /me (server restarting, network blip) says nothing about the session: do not sign anybody out.
+  if (user === undefined && me.isError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-4">
+        <Alert tone="error">{message(me.error)}</Alert>
+        <Button onClick={() => void me.refetch()} disabled={me.isFetching}>
+          {t('retry')}
+        </Button>
+      </div>
+    );
+  }
   if (me.isLoading || !user || !allowed) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -111,11 +126,9 @@ export const AppShell = ({ roles, children }: { roles: readonly Role[]; children
     );
   }
   return (
-    <RealtimeProvider enabled>
-      <div className="flex min-h-screen flex-col">
-        <Header role={user.role} name={user.displayName} />
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5">{children}</main>
-      </div>
-    </RealtimeProvider>
+    <div className="flex min-h-screen flex-col">
+      <Header role={user.role} name={user.displayName} />
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5">{children}</main>
+    </div>
   );
 };

@@ -22,12 +22,16 @@ import {
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 
-export const OpenTableDialog = ({
+/**
+ * The form lives in its own component and is keyed by the table: opening another table (or the same one
+ * again) starts from a clean form — default guest count, no leftover error from the previous attempt.
+ */
+const OpenTableForm = ({
   table,
   onOpenChange,
   onOpened,
 }: {
-  table: Table | null;
+  table: Table;
   onOpenChange: (open: boolean) => void;
   onOpened: (orderId: string) => void;
 }) => {
@@ -50,7 +54,7 @@ export const OpenTableDialog = ({
   });
 
   const mutation = useMutation({
-    mutationFn: (guests: number) => openOrder({ tableId: table?.id ?? '', guests }),
+    mutationFn: (guests: number) => openOrder({ tableId: table.id, guests }),
     onSuccess: (order) => {
       void qc.invalidateQueries({ queryKey: keys.tables });
       onOpened(order.id);
@@ -59,40 +63,64 @@ export const OpenTableDialog = ({
   });
 
   return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{t('openTitle', { number: table.number })}</DialogTitle>
+        <DialogDescription>{common('seats', { count: table.seats })}</DialogDescription>
+      </DialogHeader>
+      <form
+        onSubmit={form.handleSubmit((v) => mutation.mutate(v.guests))}
+        noValidate
+        className="flex flex-col gap-4"
+      >
+        {mutation.error ? <Alert tone="error">{message(mutation.error)}</Alert> : null}
+        <Field label={t('guestsLabel')} error={form.formState.errors.guests?.message}>
+          {(p) => (
+            <Input
+              {...p}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={LIMITS.maxGuests}
+              autoFocus
+              {...form.register('guests')}
+            />
+          )}
+        </Field>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {common('cancel')}
+          </Button>
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? t('opening') : t('open')}
+          </Button>
+        </DialogFooter>
+      </form>
+    </>
+  );
+};
+
+export const OpenTableDialog = ({
+  table,
+  onOpenChange,
+  onOpened,
+}: {
+  table: Table | null;
+  onOpenChange: (open: boolean) => void;
+  onOpened: (orderId: string) => void;
+}) => {
+  const common = useTranslations('common');
+  return (
     <Dialog open={table !== null} onOpenChange={onOpenChange}>
       <DialogContent closeLabel={common('close')}>
-        <DialogHeader>
-          <DialogTitle>{t('openTitle', { number: table?.number ?? 0 })}</DialogTitle>
-          <DialogDescription>{common('seats', { count: table?.seats ?? 0 })}</DialogDescription>
-        </DialogHeader>
-        <form
-          onSubmit={form.handleSubmit((v) => mutation.mutate(v.guests))}
-          noValidate
-          className="flex flex-col gap-4"
-        >
-          {mutation.error ? <Alert tone="error">{message(mutation.error)}</Alert> : null}
-          <Field label={t('guestsLabel')} error={form.formState.errors.guests?.message}>
-            {(p) => (
-              <Input
-                {...p}
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={LIMITS.maxGuests}
-                autoFocus
-                {...form.register('guests')}
-              />
-            )}
-          </Field>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {common('cancel')}
-            </Button>
-            <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? t('opening') : t('open')}
-            </Button>
-          </DialogFooter>
-        </form>
+        {table ? (
+          <OpenTableForm
+            key={table.id}
+            table={table}
+            onOpenChange={onOpenChange}
+            onOpened={onOpened}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );

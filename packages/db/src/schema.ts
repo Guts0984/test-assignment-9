@@ -83,6 +83,11 @@ export const dishes = pgTable(
     station: stationEnum('station').notNull(),
     /** Portions left. NULL = unlimited. 0 = stop-list. Can never go negative. */
     stock: integer('stock'),
+    /**
+     * Raised by every MANUAL change of `stock` (manager edits, stop-list). A cancelled item gives its portion
+     * back only if the epoch is unchanged since it took it, so a manager's decision is never undone.
+     */
+    stockEpoch: integer('stock_epoch').notNull().default(0),
     /** Soft delete: order history keeps pointing at the dish. */
     archived: boolean('archived').notNull().default(false),
     createdAt: createdAt(),
@@ -178,9 +183,15 @@ export const orders = pgTable(
     check('orders_number_positive', sql`${t.number} > 0`),
     check('orders_guests_range', sql`${t.guests} between 1 and 50`),
     check('orders_version_nonneg', sql`${t.version} >= 0`),
+    // Settled checks (paid, or closed with nothing to bill) have frozen amounts; only `paid` has a paid_at.
+    // The comparison goes through text so the migration can add the enum value and use it in one transaction.
     check(
-      'orders_paid_consistency',
-      sql`(${t.status} = 'paid') = (${t.total} is not null and ${t.paidAt} is not null and ${t.subtotal} is not null and ${t.serviceFee} is not null)`,
+      'orders_settled_consistency',
+      sql`(${t.status}::text in ('paid', 'closed')) = (${t.total} is not null and ${t.subtotal} is not null and ${t.serviceFee} is not null)`,
+    ),
+    check(
+      'orders_paid_at_consistency',
+      sql`(${t.status}::text = 'paid') = (${t.paidAt} is not null)`,
     ),
     check(
       'orders_total_sum',
@@ -210,6 +221,8 @@ export const orderItems = pgTable(
     guest: integer('guest').notNull(),
     comment: text('comment').notNull().default(''),
     status: itemStatusEnum('status').notNull().default('draft'),
+    /** The dish's `stock_epoch` when this item took a portion; NULL if it took none (unlimited dish). */
+    stockEpoch: integer('stock_epoch'),
     createdAt: createdAt(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     cookingAt: timestamp('cooking_at', { withTimezone: true }),

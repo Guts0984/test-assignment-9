@@ -187,7 +187,8 @@ describe('OrderWorkspace', () => {
       screen.getByText('Dish 1: not enough portions, or no longer on the menu'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/0 left, 1 requested/)).not.toBeInTheDocument();
-    expect(await screen.findByText(/changed elsewhere and has been reloaded/)).toBeInTheDocument();
+    // an out-of-stock answer has its own message; it is not dressed up as "changed elsewhere, repeat"
+    expect(screen.queryByText(/changed elsewhere and has been reloaded/)).not.toBeInTheDocument();
   });
   it('another waiter’s check is read-only: no actions, an explanation', async () => {
     serve({
@@ -267,5 +268,199 @@ describe('OrderWorkspace', () => {
     expect(screen.getByText('Ще нічого не замовлено. Оберіть страву з меню.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /^Soup, / }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('A FAILED REFRESH KEEPS THE SCREEN: the check, an open dialog and typed text stay; a notice is added', async () => {
+    const state: State = {
+      order: base({
+        items: [makeItem(1, { status: 'sent' })],
+        subtotal: 10000,
+        total: 10000,
+        remaining: 10000,
+      }),
+      menu: [soup],
+    };
+    let down = false;
+    serve(state, (url) => (down && url !== '/api/me' ? apiError(500, 'INTERNAL') : undefined));
+    const view = renderApp(<OrderWorkspace orderId={state.order.id} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Soup, / }));
+    const comment = await screen.findByLabelText(/Comment/);
+    await userEvent.type(comment, 'allergy: nuts');
+
+    down = true; // the API is down for a while
+    await view.client.invalidateQueries({ queryKey: ['order'] });
+    await view.client.invalidateQueries({ queryKey: ['menu'] });
+    expect(await screen.findByText(/Cannot refresh right now/)).toBeInTheDocument();
+    // everything is still there
+    expect(screen.getByText('Dish 1')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Comment/)).toHaveValue('allergy: nuts');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('a menu that cannot be loaded says so (it must not look like an empty menu)', async () => {
+    serve({ order: base(), menu: [] }, (url) =>
+      url === '/api/menu' ? apiError(500, 'INTERNAL') : undefined,
+    );
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    expect(await screen.findByText(/server had a problem/)).toBeInTheDocument();
+  });
+
+  it('a check closed without a bill says so', async () => {
+    serve({ order: base({ status: 'closed', subtotal: 0, total: 0 }), menu: [soup] });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    expect(await screen.findByText(/closed without a bill/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pay' })).not.toBeInTheDocument();
+  });
+
+  it('the version number is not shown to the waiter', async () => {
+    serve({ order: base({ version: 7, items: [makeItem(1)] }), menu: [soup] });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    await screen.findByText('Dish 1');
+    expect(screen.queryByText(/v7/)).not.toBeInTheDocument();
+  });
+
+  it('with items not served yet: a hint before Pay is pressed, and a warning in the payment dialog with the form off', async () => {
+    serve({
+      order: base({
+        items: [makeItem(1, { status: 'ready' }), makeItem(2, { status: 'served' })],
+        subtotal: 20000,
+        total: 20000,
+        remaining: 20000,
+      }),
+      menu: [soup],
+    });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    expect(await screen.findByText(/Payment opens once every item is served/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pay' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/1 item is not served yet/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Record payment' })).toBeDisabled();
+  });
+
+  it('fully served: no hint, and the payment form is on', async () => {
+    serve({
+      order: base({
+        items: [makeItem(1, { status: 'served' })],
+        subtotal: 10000,
+        total: 10000,
+        remaining: 10000,
+      }),
+      menu: [soup],
+    });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    await screen.findByText('Dish 1');
+    expect(screen.queryByText(/Payment opens once/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Pay' }));
+    expect(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Record payment' }),
+    ).toBeEnabled();
+  });
+
+  it('a failed "Served" click says why, next to the item', async () => {
+    const state: State = {
+      order: base({
+        items: [makeItem(1, { status: 'ready' })],
+        subtotal: 10000,
+        total: 10000,
+        remaining: 10000,
+      }),
+      menu: [soup],
+    };
+    serve(state, (url, init) =>
+      init?.method === 'PATCH' && url.includes('/items/') ? apiError(500, 'INTERNAL') : undefined,
+    );
+    renderApp(<OrderWorkspace orderId={state.order.id} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Served' }));
+    expect(await screen.findByText(/server had a problem/)).toBeInTheDocument();
+  });
+
+  it('a version conflict raises the "changed elsewhere" notice; an out-of-stock answer does not', async () => {
+    const state: State = {
+      order: base({ items: [makeItem(1, { status: 'draft', sentAt: null })] }),
+      menu: [soup],
+    };
+    let code = 'VERSION_CONFLICT';
+    serve(state, (url, init) =>
+      url.endsWith('/send') && init?.method === 'POST' ? apiError(409, code) : undefined,
+    );
+    renderApp(<OrderWorkspace orderId={state.order.id} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Send to kitchen/ }));
+    expect(await screen.findByText(/changed elsewhere and has been reloaded/)).toBeInTheDocument();
+    code = 'ORDER_PARTIALLY_PAID';
+    await userEvent.click(screen.getByRole('button', { name: /Send to kitchen/ }));
+    expect(await screen.findByText(/Part of this check is already paid/)).toBeInTheDocument();
+  });
+
+  it('the guest count can be changed: + sends PATCH with the version; − is off at the lowest guest in use', async () => {
+    const state: State = {
+      order: base({ guests: 3, version: 4, items: [makeItem(1, { guest: 3 })] }),
+      menu: [soup],
+    };
+    const { calls } = serve(state, (url, init) =>
+      url === `/api/orders/${state.order.id}` && init?.method === 'PATCH'
+        ? { ...state.order, guests: 4, version: 5 }
+        : undefined,
+    );
+    renderApp(<OrderWorkspace orderId={state.order.id} />);
+    await screen.findByText('Dish 1');
+    expect(screen.getByRole('button', { name: 'Fewer guests' })).toBeDisabled(); // guest 3 has an item
+    await userEvent.click(screen.getByRole('button', { name: 'More guests' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true));
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
+      guests: 4,
+      expectedVersion: 4,
+    });
+    expect(await screen.findByText('4 guests')).toBeInTheDocument();
+  });
+
+  it('another waiter’s check has no guest buttons', async () => {
+    serve({ order: base({ waiterId: id(99) }), menu: [soup] });
+    renderApp(<OrderWorkspace orderId={id(100)} />);
+    await screen.findByText(/another waiter's check/);
+    expect(screen.queryByRole('button', { name: 'More guests' })).not.toBeInTheDocument();
+  });
+
+  it('closing the payment that finished the check: the change is still shown', async () => {
+    const open = base({
+      items: [makeItem(1, { status: 'served' })],
+      subtotal: 10000,
+      total: 10000,
+      remaining: 10000,
+    });
+    const paidOrder = {
+      ...open,
+      status: 'paid',
+      paidAmount: 10000,
+      remaining: 0,
+      version: 1,
+      paidAt: '2025-06-01T10:30:00.000Z',
+    };
+    let paid = false;
+    serve({ order: open, menu: [soup] }, (url, init) => {
+      if (url === `/api/orders/${open.id}/payments` && init?.method === 'POST') {
+        paid = true;
+        return {
+          replayed: false,
+          payment: {
+            id: id(900),
+            method: 'cash',
+            amount: 10000,
+            tendered: 12000,
+            change: 2000,
+            label: null,
+            createdAt: '2025-06-01T10:30:00.000Z',
+          },
+          order: paidOrder,
+        };
+      }
+      if (url === `/api/orders/${open.id}` && paid) return paidOrder;
+      return undefined;
+    });
+    renderApp(<OrderWorkspace orderId={open.id} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pay' }));
+    await userEvent.type(await screen.findByLabelText('Cash received'), '120');
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    expect(await screen.findByText('Check paid in full')).toBeInTheDocument();
+    expect(screen.getByText('Give the guest change: ₴20.00')).toBeInTheDocument();
   });
 });

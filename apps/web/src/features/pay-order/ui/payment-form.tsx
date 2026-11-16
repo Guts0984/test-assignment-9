@@ -1,10 +1,9 @@
 'use client';
 
 import { useLocale, useTranslations } from 'next-intl';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import type { Order, PaymentResult } from '@app/shared';
 import { usePayment } from '@/entities/order/mutations';
-import { newId } from '@/shared/lib/ids';
 import type { Locale } from '@/shared/i18n/routing';
 import { useErrorMessage } from '@/shared/lib/error-message';
 import { formatMoney, moneyToInput } from '@/shared/lib/money';
@@ -13,17 +12,21 @@ import { Button } from '@/shared/ui/button';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { evaluatePayment } from '../lib/payment-draft';
+import { forgetPaymentId, paymentIdFor } from '../lib/payment-ids';
 
 export const PaymentForm = ({
   order,
   suggestedAmount,
   label,
+  blocked = false,
   onPaid,
 }: {
   order: Order;
   /** Kopecks to prefill (a split part, or the whole remaining balance). */
   suggestedAmount: number;
   label?: string | undefined;
+  /** The check cannot be paid yet (items are not served): the button stays off. */
+  blocked?: boolean;
   onPaid?: (result: PaymentResult) => void;
 }) => {
   const t = useTranslations('checkout');
@@ -47,20 +50,18 @@ export const PaymentForm = ({
 
   /**
    * The payment id is the idempotency key. It stays the same while the request is "the same" (so a
-   * double click or a retry after a dropped connection is one payment) and changes as soon as the
-   * cashier edits anything that matters.
+   * double click, a retry after a dropped connection, or closing and reopening this dialog is one
+   * payment) and changes as soon as the cashier edits anything that matters (see payment-ids.ts).
    */
-  const idRef = useRef<{ key: string; id: string }>({ key: '', id: newId() });
   const key = `${method}|${draft.amount}|${draft.tendered}|${label ?? ''}`;
-  if (idRef.current.key !== key) idRef.current = { key, id: newId() };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!draft.valid || draft.amount === null || pay.isPending) return;
+    if (!draft.valid || draft.amount === null || pay.isPending || blocked) return;
     pay.mutate(
       {
-        id: idRef.current.id,
+        id: paymentIdFor(order.id, key),
         method,
         amount: draft.amount,
         ...(method === 'cash' && draft.tendered !== null ? { tendered: draft.tendered } : {}),
@@ -70,7 +71,7 @@ export const PaymentForm = ({
         onSuccess: (result) => {
           setLast(result);
           setTenderedText('');
-          idRef.current = { key: '', id: newId() };
+          forgetPaymentId(order.id, key);
           onPaid?.(result);
         },
       },
@@ -98,7 +99,7 @@ export const PaymentForm = ({
     <form onSubmit={submit} noValidate className="flex flex-col gap-4" aria-label={t('pay')}>
       {pay.retrying ? <Alert tone="warning">{t('retrying')}</Alert> : null}
       {pay.error && !pay.retrying ? <Alert tone="error">{message(pay.error)}</Alert> : null}
-      {last && !last.replayed && last.payment.method === 'cash' && last.payment.change > 0 ? (
+      {last && last.payment.method === 'cash' && last.payment.change > 0 ? (
         <Alert tone="success">
           {t('changeGiven', { amount: formatMoney(last.payment.change, locale) })}
         </Alert>
@@ -159,7 +160,11 @@ export const PaymentForm = ({
         </>
       ) : null}
 
-      <Button type="submit" size="lg" disabled={pay.isPending || order.status === 'paid'}>
+      <Button
+        type="submit"
+        size="lg"
+        disabled={pay.isPending || blocked || order.status !== 'open'}
+      >
         {pay.isPending ? t('paying') : t('pay')}
       </Button>
     </form>

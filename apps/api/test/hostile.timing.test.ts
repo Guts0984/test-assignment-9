@@ -1,6 +1,13 @@
 import net from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PASSWORDS, percentile, startTestApp, type Reply, type TestApp } from './harness';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import {
+  PASSWORDS,
+  describeNet,
+  percentile,
+  startTestApp,
+  type Reply,
+  type TestApp,
+} from './harness';
 
 // Every address in 127.0.0.0/8 is a different, real peer on Linux.
 const ATTACKER = '127.0.0.2';
@@ -10,7 +17,7 @@ const OTHER = '127.0.0.4';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const count = (rs: Reply[], status: number) => rs.filter((r) => r.status === status).length;
 
-describe('flood from one IP does not take the service down for others', () => {
+describeNet('flood from one IP does not take the service down for others', () => {
   let app: TestApp;
   beforeAll(async () => {
     app = await startTestApp(
@@ -156,7 +163,7 @@ describe('flood from one IP does not take the service down for others', () => {
   });
 });
 
-describe('credential attacks', () => {
+describeNet('credential attacks', () => {
   let app: TestApp;
   beforeAll(async () => {
     app = await startTestApp(
@@ -221,7 +228,7 @@ describe('credential attacks', () => {
   });
 });
 
-describe('password hashing cannot be used to starve the server', () => {
+describeNet('password hashing cannot be used to starve the server', () => {
   let app: TestApp;
   beforeAll(async () => {
     app = await startTestApp(
@@ -299,7 +306,7 @@ describe('password hashing cannot be used to starve the server', () => {
   });
 });
 
-describe('behind a trusted reverse proxy (nginx)', () => {
+describeNet('behind a trusted reverse proxy (nginx)', () => {
   let app: TestApp;
   beforeAll(async () => {
     app = await startTestApp(
@@ -369,7 +376,7 @@ describe('behind a trusted reverse proxy (nginx)', () => {
   });
 });
 
-describe('switches', () => {
+describeNet('switches', () => {
   it('RATE_LIMIT_ENABLED=false turns the limiter off', async () => {
     const app = await startTestApp({ RATE_LIMIT_ENABLED: 'false' }, { separateProcess: true });
     try {

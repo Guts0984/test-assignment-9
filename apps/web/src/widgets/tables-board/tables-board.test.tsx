@@ -39,9 +39,9 @@ describe('TablesBoard', () => {
     expect(
       await screen.findByRole('button', { name: /Open the table: Table 1/ }),
     ).toBeInTheDocument();
-    const own = screen.getByRole('link', { name: /Table 2, Occupied/ });
+    const own = screen.getByRole('link', { name: /Table 2.*Occupied/ });
     expect(within(own).getByText('Your table')).toBeInTheDocument();
-    const ready = screen.getByRole('link', { name: /Table 3, Ready to serve/ });
+    const ready = screen.getByRole('link', { name: /Table 3.*Ready to serve/ });
     expect(within(ready).getByText('2 dishes ready')).toBeInTheDocument();
     expect(within(ready).getByText('Another waiter')).toBeInTheDocument();
     expect(ready).toHaveAttribute('href', `/orders/${id(30)}`);
@@ -50,11 +50,11 @@ describe('TablesBoard', () => {
     let data = tables.map((t) => ({ ...t }));
     mockFetch((url) => (url === '/api/me' ? ME : { tables: data }));
     const view = renderApp(<TablesBoard />);
-    await screen.findByRole('link', { name: /Table 2, Occupied/ });
+    await screen.findByRole('link', { name: /Table 2.*Occupied/ });
     data = data.map((t) => (t.number === 2 ? { ...t, state: 'ready', readyCount: 1 } : t));
     await view.client.invalidateQueries({ queryKey: ['tables'] });
     expect(
-      await screen.findByRole('link', { name: /Table 2, Ready to serve/ }),
+      await screen.findByRole('link', { name: /Table 2.*Ready to serve/ }),
     ).toBeInTheDocument();
     expect(screen.getByText('1 dish ready')).toBeInTheDocument();
   });
@@ -117,5 +117,48 @@ describe('TablesBoard', () => {
     expect(screen.getByText('Вільний')).toBeInTheDocument();
     expect(screen.getByText('4 місця')).toBeInTheDocument();
     expect(screen.getByText('6 місць')).toBeInTheDocument();
+  });
+
+  it('a table opened after a failed attempt on another table starts clean: no old error, default guests', async () => {
+    mockFetch((url, init) =>
+      url === '/api/me'
+        ? ME
+        : url === '/api/orders' && init?.method === 'POST'
+          ? apiError(409, 'CONFLICT')
+          : { tables: [...tables, { ...tables[0]!, id: id(4), number: 4 }] },
+    );
+    renderApp(<TablesBoard />);
+    await userEvent.click(await screen.findByRole('button', { name: /Open the table: Table 1/ }));
+    const guests = await screen.findByLabelText('Number of guests');
+    await userEvent.clear(guests);
+    await userEvent.type(guests, '7');
+    await userEvent.click(screen.getByRole('button', { name: 'Open the table' }));
+    expect(await screen.findByText('That cannot be done right now.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: /Open the table: Table 4/ }));
+    expect(await screen.findByLabelText('Number of guests')).toHaveValue(2); // not the 7 typed before
+    expect(screen.queryByText('That cannot be done right now.')).not.toBeInTheDocument();
+  });
+
+  it('a busy table card is read out with its seats, whose it is and how many dishes are ready', async () => {
+    mockFetch((url) => (url === '/api/me' ? ME : { tables }));
+    renderApp(<TablesBoard />);
+    const ready = await screen.findByRole('link', { name: /Table 3/ });
+    expect(ready).toHaveAccessibleName(/Ready to serve/);
+    expect(ready).toHaveAccessibleName(/6 seats/);
+    expect(ready).toHaveAccessibleName(/2 dishes ready/);
+    expect(ready).toHaveAccessibleName(/Another waiter/);
+  });
+
+  it('a failed refresh keeps the floor plan and adds a notice', async () => {
+    let down = false;
+    mockFetch((url) => (url === '/api/me' ? ME : down ? apiError(500, 'INTERNAL') : { tables }));
+    const view = renderApp(<TablesBoard />);
+    await screen.findByRole('link', { name: /Table 2/ });
+    down = true;
+    await view.client.invalidateQueries({ queryKey: ['tables'] });
+    expect(await screen.findByText(/Cannot refresh right now/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Table 2/ })).toBeInTheDocument();
   });
 });

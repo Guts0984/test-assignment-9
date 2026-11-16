@@ -9,6 +9,7 @@ import { useIsLive } from '@/features/realtime-sync';
 import { useErrorMessage } from '@/shared/lib/error-message';
 import { cn } from '@/shared/lib/cn';
 import { Alert } from '@/shared/ui/alert';
+import { RefreshFailed } from '@/shared/ui/refresh-failed';
 import { Spinner } from '@/shared/ui/spinner';
 
 /** Items in the order they were sent. New items and cancellations arrive live. */
@@ -23,8 +24,8 @@ export const KitchenBoard = () => {
   const [conflict, setConflict] = useState(false);
 
   if (kitchen.isLoading) return <Spinner label={common('loading')} />;
-  if (kitchen.error) return <Alert tone="error">{message(kitchen.error)}</Alert>;
-  const all = kitchen.data ?? [];
+  if (!kitchen.data) return <Alert tone="error">{message(kitchen.error)}</Alert>;
+  const all = kitchen.data;
   const items = station === 'all' ? all : all.filter((i) => i.station === station);
 
   return (
@@ -58,6 +59,7 @@ export const KitchenBoard = () => {
           ))}
         </div>
       </div>
+      {kitchen.isError ? <RefreshFailed /> : null}
       {conflict ? (
         <Alert tone="warning">
           {t('conflict')}{' '}

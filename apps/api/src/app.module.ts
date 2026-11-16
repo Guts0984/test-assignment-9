@@ -19,7 +19,7 @@ import { OrdersService } from './orders/orders.service';
 import { ReportsController } from './reports/reports.controller';
 import { TablesController } from './tables/tables.controller';
 import { TablesService } from './tables/tables.service';
-import { HealthController } from './health/health.controller';
+import { ConfigController, HealthController } from './health/health.controller';
 import type { Limiters } from './rate-limit/limiters';
 
 @Module({})
@@ -31,6 +31,7 @@ export class AppModule {
       controllers: [
         AuthController,
         HealthController,
+        ConfigController,
         MenuController,
         TablesController,
         OrdersController,

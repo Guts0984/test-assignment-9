@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { addDays, dayOf, type RevenueResponse } from '@app/shared';
+import { addDays, businessDayOf, type RevenueResponse } from '@app/shared';
 import { PASSWORDS, startTestApp, type TestApp } from './harness';
 import { as, type Client } from './world';
 
@@ -8,7 +8,7 @@ let app: TestApp;
 let manager: Client;
 let waiter: Client;
 let cook: Client;
-const today = dayOf(new Date(), 'Europe/Kyiv');
+const today = businessDayOf(new Date(), 'Europe/Kyiv', 4);
 const FROM = addDays(today, -60);
 const TO = addDays(today, -1);
 

@@ -126,8 +126,8 @@ export const kitchenCard = (
     .filter({ hasText: `Check #${check} ` });
 
 /**
- * The kitchen finishes every item of a check, through the API as a cook (payment is only accepted once
- * nothing is being prepared). Items already ready or served are left alone.
+ * The kitchen finishes every item of a check (API, as a cook) and the waiter serves it: payment is only
+ * accepted once every item is served or cancelled. Items already served are left alone.
  */
 export const kitchenFinishes = async (
   browser: Browser,
@@ -151,6 +151,12 @@ export const kitchenFinishes = async (
           data: { status: 'ready' },
         });
         expect(b.ok()).toBe(true);
+      }
+      if (item.status !== 'served' && item.status !== 'cancelled') {
+        const c = await waiterRequest.patch(`/api/orders/${orderId}/items/${item.id}`, {
+          data: { status: 'served' },
+        });
+        expect(c.ok()).toBe(true);
       }
     }
   } finally {

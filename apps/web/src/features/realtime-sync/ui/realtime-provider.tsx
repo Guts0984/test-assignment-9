@@ -3,6 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, createContext, useContext, useEffect, useState } from 'react';
 import { subscribeToEvents } from '@/shared/api/sse';
+import { keys } from '@/shared/api/query-keys';
 import { keysToInvalidate } from '@/shared/lib/event-keys';
 
 const LiveContext = createContext<boolean>(false);
@@ -34,6 +35,8 @@ export const RealtimeProvider = ({
         void client.invalidateQueries();
       },
       onClose: () => setLive(false),
+      // The session is gone: record it (the shell sends the user to the login page) and stop the stream.
+      onUnauthorized: () => client.setQueryData(keys.me, null),
       onEvent: (event) => {
         for (const key of keysToInvalidate(event)) void client.invalidateQueries({ queryKey: key });
       },

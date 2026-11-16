@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { Order } from '@app/shared';
 import { groupByGuest } from '@/entities/order/model';
 import { StatusBadge } from '@/entities/order/ui/status-badge';
+import { GuestsControl } from '@/features/change-guests';
 import { CloseEmptyButton } from '@/features/close-order';
 import { ItemActions } from '@/features/order-item-actions';
 import { SendButton } from '@/features/send-order';
@@ -35,9 +36,7 @@ export const OrderPanel = ({
         <h2 id="check-title" className="text-lg font-semibold">
           {t('yourCheck')}
         </h2>
-        <span className="text-sm text-muted-foreground">
-          {common('guests', { count: order.guests })} · {t('version', { version: order.version })}
-        </span>
+        <GuestsControl order={order} editable={editable && order.status === 'open'} />
       </div>
 
       {order.items.length === 0 ? (
@@ -122,6 +121,10 @@ export const OrderPanel = ({
               {t('checkout')}
             </Button>
           )}
+          {order.items.some((i) => ['sent', 'cooking', 'ready'].includes(i.status)) &&
+          order.total > 0 ? (
+            <p className="text-sm text-muted-foreground">{t('payAfterServed')}</p>
+          ) : null}
         </>
       ) : null}
     </section>

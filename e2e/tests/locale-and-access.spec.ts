@@ -176,7 +176,7 @@ test('a check opened by mistake can be closed, and the table is free again', asy
       .click();
     await waiter.page.waitForURL('**/en/tables');
     const check = await waiter.context.request.get(`/api/orders/${order}`);
-    expect((await check.json()).status).toBe('paid');
+    expect((await check.json()).status).toBe('closed'); // not a sale
     // and there is no open check left on the waiter's side
     const body = await (await waiter.context.request.get('/api/tables')).json();
     const tables: { orderId: string | null }[] = Array.isArray(body) ? body : body.tables;

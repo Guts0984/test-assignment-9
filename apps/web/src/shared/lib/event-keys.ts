@@ -7,6 +7,8 @@ export const keysToInvalidate = (event: AppEvent): QueryKey[] => {
   switch (event.type) {
     case 'item.changed':
       return [keys.order(event.orderId), keys.kitchen, keys.tables];
+    case 'order.changed':
+      return [keys.order(event.orderId), keys.tables];
     case 'table.changed':
       return [keys.tables];
     case 'stoplist.changed':

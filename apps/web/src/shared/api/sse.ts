@@ -6,9 +6,20 @@ export type SseHandlers = {
   /** Fired on every (re)connection: events may have been missed, so refetch what matters. */
   onOpen: () => void;
   onClose: () => void;
+  /** The stream cannot be reopened because the session is gone (401): stop trying, the user must sign in. */
+  onUnauthorized?: () => void;
 };
 
 const EVENT_TYPES = ['item.changed', 'stoplist.changed', 'table.changed', 'menu.changed'] as const;
+
+const defaultSessionValid = async (): Promise<boolean> => {
+  try {
+    const res = await fetch(`${API_BASE}/me`, { credentials: 'same-origin', cache: 'no-store' });
+    return res.status !== 401;
+  } catch {
+    return true;
+  }
+};
 
 const RETRY_MIN_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
@@ -23,6 +34,8 @@ const CLOSED = 2; // EventSource.CLOSED
 export const subscribeToEvents = (
   handlers: SseHandlers,
   make: (url: string) => EventSource = (u) => new EventSource(u),
+  /** Is the session still valid? `false` only for a definite 401; any doubt (network, 5xx) means "keep trying". */
+  sessionValid: () => Promise<boolean> = defaultSessionValid,
 ): (() => void) => {
   let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -51,11 +64,19 @@ export const subscribeToEvents = (
       handlers.onClose();
       if (stopped || s.readyState !== CLOSED || timer) return;
       s.close();
-      timer = setTimeout(() => {
-        timer = null;
-        if (!stopped) connect();
-      }, delay);
-      delay = Math.min(delay * 2, RETRY_MAX_MS);
+      // A stream that is refused with 401 is refused for ever: look at the session before trying again.
+      void sessionValid().then((valid) => {
+        if (stopped) return;
+        if (!valid) {
+          handlers.onUnauthorized?.();
+          return;
+        }
+        timer = setTimeout(() => {
+          timer = null;
+          if (!stopped) connect();
+        }, delay);
+        delay = Math.min(delay * 2, RETRY_MAX_MS);
+      });
     };
   };
 

@@ -11,3 +11,4 @@ export * from './reports';
 export * from './events';
 export * from './money';
 export * from './time';
+export * from './config';

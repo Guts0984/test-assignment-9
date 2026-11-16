@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Order } from '@app/shared';
 import { PaymentForm, evaluatePayment } from './index';
+import { paymentIdFor, resetPaymentIds } from './lib/payment-ids';
 import { apiError, id, makeItem, makeOrder, mockFetch, renderApp } from '../../../test/utils';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  resetPaymentIds();
 });
 
 const sent = makeOrder({
@@ -207,5 +209,104 @@ describe('PaymentForm', () => {
     const { rerender } = setup({ suggestedAmount: 20415 });
     expect(screen.getByLabelText('Amount to pay')).toHaveValue('204.15');
     rerender(<PaymentForm order={sent} suggestedAmount={20414} />);
+  });
+
+  it('closing and reopening the dialog does NOT change the payment id of an unfinished payment', async () => {
+    // the first attempt never gets an answer (the cashier gives up and closes the dialog)
+    const seen: string[] = [];
+    const never = new Promise<Response>(() => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_u: RequestInfo | URL, init?: RequestInit) => {
+        seen.push((JSON.parse(String(init?.body)) as { id: string }).id);
+        return never;
+      }),
+    );
+    const first = setup();
+    await userEvent.click(screen.getByLabelText('Card (confirmed on the terminal)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    first.unmount(); // the dialog is closed: the form is gone
+
+    const second = setup(); // reopened: a brand-new form
+    await userEvent.click(screen.getByLabelText('Card (confirmed on the terminal)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1]).toBe(seen[0]); // so the server can recognise it, whatever happened to the first request
+    second.unmount();
+  });
+
+  it('after a payment succeeded, the next identical payment gets a NEW id', async () => {
+    const seen: string[] = [];
+    mockFetch((_u, init) => {
+      const b = JSON.parse(String(init?.body)) as { id: string };
+      seen.push(b.id);
+      return paidResult({ id: b.id, amount: 61244, method: 'card' });
+    });
+    const a = setup();
+    await userEvent.click(screen.getByLabelText('Card (confirmed on the terminal)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    a.unmount();
+    await waitFor(() => expect(paymentIdFor(sent.id, 'card|61244|null|')).not.toBe(seen[0]));
+  });
+
+  it('a 502/503/504 from the proxy is retried with the same id, like a dropped connection', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const ids: string[] = [];
+    let attempt = 0;
+    const fn = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      const b = JSON.parse(String(init?.body)) as { id: string };
+      ids.push(b.id);
+      attempt += 1;
+      if (attempt === 1) return apiError(503, 'INTERNAL');
+      if (attempt === 2) return apiError(504, 'INTERNAL');
+      return new Response(JSON.stringify(paidResult({ id: b.id, amount: 61244, method: 'card' })), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal('fetch', fn);
+    setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByLabelText('Card (confirmed on the terminal)'));
+    await user.click(screen.getByRole('button', { name: 'Record payment' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    await waitFor(() => expect(fn).toHaveBeenCalledTimes(3));
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it('a 500 or a 422 is NOT retried (the request was understood and refused)', async () => {
+    const { fn } = mockFetch(() => apiError(500, 'INTERNAL'));
+    setup();
+    await userEvent.click(screen.getByLabelText('Card (confirmed on the terminal)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    await screen.findByRole('alert');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('the change to give back is shown also when the answer is the replay of a payment whose first answer was lost', async () => {
+    mockFetch((_u, init) => ({
+      ...paidResult({
+        id: (JSON.parse(String(init?.body)) as { id: string }).id,
+        amount: 61244,
+        method: 'cash',
+        tendered: 70000,
+      }),
+      replayed: true,
+    }));
+    setup();
+    await userEvent.type(screen.getByLabelText('Cash received'), '700');
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    expect(await screen.findByText('Change given: ₴87.56')).toBeInTheDocument();
+  });
+
+  it('while items are not served the button stays off and nothing is sent', async () => {
+    const { fn } = mockFetch(() => apiError(500, 'INTERNAL'));
+    setup({ blocked: true });
+    expect(screen.getByRole('button', { name: 'Record payment' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    expect(fn).not.toHaveBeenCalled();
   });
 });

@@ -179,3 +179,16 @@ export const makeReady = async (waiter: Client, cook: Client, order: Order): Pro
   const r = await waiter.get(`/orders/${order.id}`);
   return r.body as Order;
 };
+
+/** Cook makes everything, the waiter serves it: the state in which a check can be paid. */
+export const makeServed = async (waiter: Client, cook: Client, order: Order): Promise<Order> => {
+  const ready = await makeReady(waiter, cook, order);
+  let current = ready;
+  for (const item of ready.items) {
+    if (item.status !== 'ready') continue;
+    const r = await waiter.patch(`/orders/${order.id}/items/${item.id}`, { status: 'served' });
+    if (r.status !== 200) throw new Error(`serve failed: ${r.status} ${r.text}`);
+    current = r.body as Order;
+  }
+  return current;
+};

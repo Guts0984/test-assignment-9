@@ -143,4 +143,19 @@ describe('KitchenBoard', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Стіл 1')).toBeInTheDocument();
   });
+
+  it('a failed click says why (not silently lost); a failed refresh keeps the list', async () => {
+    let down = false;
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH') return apiError(500, 'INTERNAL');
+      return down ? apiError(500, 'INTERNAL') : { items: [item(1, 2)] };
+    });
+    const view = renderApp(<KitchenBoard />);
+    await userEvent.click(await screen.findByRole('button', { name: /Dish 1/ }));
+    expect(await screen.findByText(/server had a problem/)).toBeInTheDocument();
+    down = true;
+    await view.client.invalidateQueries({ queryKey: ['kitchen'] });
+    expect(await screen.findByText(/Cannot refresh right now/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Dish 1/ })).toBeInTheDocument();
+  });
 });

@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import {
   type ItemStatus,
   addDays,
-  dayOf,
+  businessDayOf,
   itemUnitPrice,
   orderTotals,
   splitEqual,
@@ -31,6 +31,8 @@ const SEED_RNG_SEED = 20250101;
 
 export type SeedOptions = {
   tz: string;
+  /** Local hour at which the business day starts (default 4: a shift past midnight is one day). */
+  dayStartHour?: number;
   passwords: { waiter: string; cook: string; manager: string };
   /** Injectable clock for tests; defaults to now. */
   now?: Date;
@@ -235,7 +237,7 @@ export const seedDatabase = async (db: Db, options: SeedOptions): Promise<SeedSu
   const paymentRows: (typeof payments.$inferInsert)[] = [];
   const counterRows: { day: string; last: number }[] = [];
 
-  const today = dayOf(now, tz);
+  const today = businessDayOf(now, tz, options.dayStartHour ?? 4);
 
   // ---- 60 days of paid history -------------------------------------------------------------
   for (let back = SEED_HISTORY_DAYS; back >= 1; back--) {

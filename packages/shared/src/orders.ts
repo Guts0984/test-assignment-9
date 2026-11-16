@@ -7,6 +7,11 @@ export const OpenOrderBody = z
   .strict();
 export type OpenOrderBody = z.infer<typeof OpenOrderBody>;
 
+export const GuestsBody = z
+  .object({ guests: z.number().int().min(1).max(LIMITS.maxGuests), expectedVersion: version })
+  .strict();
+export type GuestsBody = z.infer<typeof GuestsBody>;
+
 /** `guest` is 1…N; the upper bound (order.guests) is checked on the server against the order. */
 export const AddItemBody = z
   .object({

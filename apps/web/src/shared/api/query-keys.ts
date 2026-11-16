@@ -1,6 +1,7 @@
 /** One place for every cache key, so mutations and realtime events invalidate the right things. */
 export const keys = {
   me: ['me'] as const,
+  config: ['config'] as const,
   tables: ['tables'] as const,
   menu: ['menu'] as const,
   order: (id: string) => ['order', id] as const,

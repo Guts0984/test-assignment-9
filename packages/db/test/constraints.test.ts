@@ -167,14 +167,49 @@ describe('orders', () => {
       'orders_guests_range',
     );
   });
+  it('closed (nothing to bill) has frozen zero totals and no paid_at; open/closed never carry a paid_at', async () => {
+    const w = await makeUser(t.db, 'w_closed');
+    const tb = await makeTable(t.db);
+    const base = { tableId: tb.id, waiterId: w.id };
+    await makeOrder(t.db, base, {
+      number: 1,
+      day: '2025-05-02',
+      status: 'closed',
+      subtotal: 0,
+      serviceFee: 0,
+      total: 0,
+    });
+    // closed without totals
+    await expectViolation(
+      makeOrder(t.db, base, { number: 2, day: '2025-05-02', status: 'closed' }),
+      'orders_settled_consistency',
+    );
+    // closed with a paid_at, or open with one
+    await expectViolation(
+      makeOrder(t.db, base, {
+        number: 3,
+        day: '2025-05-02',
+        status: 'closed',
+        subtotal: 0,
+        serviceFee: 0,
+        total: 0,
+        paidAt: new Date(),
+      }),
+      'orders_paid_at_consistency',
+    );
+    await expectViolation(
+      makeOrder(t.db, base, { number: 4, day: '2025-05-02', paidAt: new Date() }),
+      'orders_paid_at_consistency',
+    );
+  });
   it('paid ⇔ totals and paid_at are all set; total = subtotal + fee', async () => {
     const w = await makeUser(t.db, 'w_paid');
     const tb = await makeTable(t.db);
     const base = { tableId: tb.id, waiterId: w.id };
     // paid without totals
     await expectViolation(
-      makeOrder(t.db, base, { number: 1, day: '2025-05-01', status: 'paid' }),
-      'orders_paid_consistency',
+      makeOrder(t.db, base, { number: 1, day: '2025-05-01', status: 'paid', paidAt: new Date() }),
+      'orders_settled_consistency',
     );
     // open with totals set (a half-paid state must be impossible)
     await expectViolation(
@@ -184,9 +219,8 @@ describe('orders', () => {
         subtotal: 1,
         serviceFee: 0,
         total: 1,
-        paidAt: new Date(),
       }),
-      'orders_paid_consistency',
+      'orders_settled_consistency',
     );
     // arithmetic mismatch
     await expectViolation(

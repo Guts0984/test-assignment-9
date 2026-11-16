@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatElapsed, isOverdue, minutesBetween } from './time';
+import { formatDay } from './format-day';
 import { lastDays, periodDays, readPeriod } from './period';
 
 const T0 = Date.parse('2025-06-01T10:00:00Z');
@@ -24,13 +25,11 @@ describe('kitchen timer', () => {
 
 describe('report period in the URL', () => {
   const params = (q: string) => new URLSearchParams(q);
-  const today = new Date('2025-06-15T09:00:00Z'); // 15 June 2025 in Kyiv
-  it('the default period follows the Kyiv day, not the device clock', () => {
-    // 22:30 UTC on 14 June is already 01:30 on 15 June in Kyiv
-    expect(lastDays(1, new Date('2025-06-14T22:30:00Z'))).toEqual({
-      from: '2025-06-15',
-      to: '2025-06-15',
-    });
+  const today = '2025-06-15'; // the server's business day (from /config), not the device clock
+  it('the default period ends on the server-given day, whatever this device thinks it is', () => {
+    expect(lastDays(1, '2025-06-15')).toEqual({ from: '2025-06-15', to: '2025-06-15' });
+    expect(lastDays(7, '2025-03-02')).toEqual({ from: '2025-02-24', to: '2025-03-02' });
+    expect(readPeriod(new URLSearchParams(''), '2025-01-01').period.to).toBe('2025-01-01');
   });
   it('no parameters → the default last 30 days', () => {
     const r = readPeriod(params(''), today);
@@ -57,5 +56,16 @@ describe('report period in the URL', () => {
   it('presets end today and span exactly N days', () => {
     for (const n of [7, 30, 60]) expect(periodDays(lastDays(n, today))).toBe(n);
     expect(lastDays(7, today)).toEqual({ from: '2025-06-09', to: '2025-06-15' });
+  });
+});
+
+describe('formatDay', () => {
+  it('shows a calendar day in the viewer language, not as ISO text', () => {
+    expect(formatDay('2025-06-15', 'en')).toBe('June 15');
+    expect(formatDay('2025-06-15', 'uk')).toBe('15 червня');
+    expect(formatDay('2025-12-31', 'en')).toBe('December 31');
+  });
+  it('leaves a malformed value as it is', () => {
+    expect(formatDay('nonsense', 'en')).toBe('nonsense');
   });
 });

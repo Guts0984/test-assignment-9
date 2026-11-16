@@ -56,7 +56,7 @@ export const loadOrder = async (q: Queryable, orderId: string): Promise<Order | 
   }));
 
   const live = orderTotals(items, o.guests);
-  const frozen = o.status === 'paid';
+  const frozen = o.status !== 'open'; // paid or closed: the amounts were frozen
   const subtotal = frozen ? (o.subtotal ?? live.subtotal) : live.subtotal;
   const serviceFee = frozen ? (o.serviceFee ?? live.serviceFee) : live.serviceFee;
   const total = frozen ? (o.total ?? live.total) : live.total;

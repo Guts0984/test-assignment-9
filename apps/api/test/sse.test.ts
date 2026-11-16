@@ -2,7 +2,7 @@ import http from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EventsService } from '../src/events/events.service';
 import type { TestApp } from './harness';
-import { PASSWORDS } from './harness';
+import { PASSWORDS, itNet } from './harness';
 import { add, open, resetStock, send, startSession, type Session } from './world';
 
 type Evt = { event: string; data: Record<string, unknown> };
@@ -278,7 +278,7 @@ describe('connection limits and cleanup', () => {
       open3.forEach((x) => x.close());
     }
   });
-  it('one IP cannot open unlimited streams even with many accounts or sessions', async () => {
+  itNet('one IP cannot open unlimited streams even with many accounts or sessions', async () => {
     const cookies = await Promise.all(
       Array.from({ length: 4 }, () => s.app.login('waiter2', PASSWORDS.waiter2)),
     );

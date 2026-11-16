@@ -2,11 +2,15 @@ import { z } from 'zod';
 import { LIMITS, id, kopecks, price, text } from './primitives';
 import { Station } from './enums';
 
-export const ModifierInput = z.object({ name: text(), surcharge: price }).strict();
+/** `id` (optional) names an existing modifier to keep and update; without it a new one is created. */
+export const ModifierInput = z
+  .object({ id: id.optional(), name: text(), surcharge: price })
+  .strict();
 
 /** Pick between `min` and `max` modifiers of a group. "Exactly 1" is min=1,max=1; "0–3" is min=0,max=3. */
 export const ModifierGroupInput = z
   .object({
+    id: id.optional(),
     name: text(),
     min: z.number().int().min(0),
     max: z.number().int().min(1),
@@ -33,7 +37,19 @@ const dishFields = {
   price,
   station: Station,
   stock: z.number().int().min(0).max(LIMITS.maxStock).nullable(),
-  modifierGroups: z.array(ModifierGroupInput).max(LIMITS.maxModifierGroups),
+  modifierGroups: z
+    .array(ModifierGroupInput)
+    .max(LIMITS.maxModifierGroups)
+    .refine(
+      (groups) => {
+        const ids = [
+          ...groups.map((g) => g.id),
+          ...groups.flatMap((g) => g.modifiers.map((m) => m.id)),
+        ].filter((x): x is string => x !== undefined);
+        return new Set(ids).size === ids.length;
+      },
+      { message: 'Each group and modifier id may appear only once' },
+    ),
 };
 
 export const DishCreate = z.object(dishFields).strict();

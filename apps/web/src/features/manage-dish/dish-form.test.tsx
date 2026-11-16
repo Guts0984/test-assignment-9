@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dish } from '@app/shared';
 import { DishCreate } from '@app/shared';
 import { DishFormDialog, dishFormSchema, dishToForm, formToPayload } from './index';
-import { id, mockFetch, renderApp, steak } from '../../../test/utils';
+import { apiError, id, mockFetch, renderApp, steak } from '../../../test/utils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -116,13 +116,22 @@ describe('dish form schema and payload', () => {
       price: d.price,
       station: d.station,
       stock: d.stock,
+      // existing groups and modifiers travel WITH their ids, so saving keeps them (and what points at them)
       modifierGroups: d.modifierGroups.map((g) => ({
+        id: g.id,
         name: g.name,
         min: g.min,
         max: g.max,
-        modifiers: g.modifiers.map((m) => ({ name: m.name, surcharge: m.surcharge })),
+        modifiers: g.modifiers.map((m) => ({ id: m.id, name: m.name, surcharge: m.surcharge })),
       })),
     });
+  });
+  it('stock above what the API accepts (100 000) is refused in the form, at the field', () => {
+    const schema = dishFormSchema(messages);
+    expect(schema.safeParse({ ...valid, stock: '100000' }).success).toBe(true);
+    const over = schema.safeParse({ ...valid, stock: '100001' });
+    expect(over.success).toBe(false);
+    expect(schema.safeParse({ ...valid, stock: '999999' }).success).toBe(false);
   });
 });
 
@@ -215,5 +224,38 @@ describe('DishFormDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(calls[0]?.body).toMatchObject({ stock: 10 });
+  });
+
+  it('"Add a dish" opens EMPTY every time: what was typed or saved before is gone', async () => {
+    mockFetch(() => ({ ...steak(), id: id(900) }));
+    const view = renderApp(<DishFormDialog dish={null} open onClose={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText('Name'), 'Half-typed dish');
+    view.rerender(<DishFormDialog dish={null} open={false} onClose={vi.fn()} />);
+    view.rerender(<DishFormDialog dish={null} open onClose={vi.fn()} />);
+    expect(screen.getByLabelText('Name')).toHaveValue('');
+  });
+  it('typing in the edit form survives the dish changing underneath (a sale moves its stock)', async () => {
+    const dish = { ...steak(), stock: 5 } as unknown as Dish;
+    mockFetch(() => dish);
+    const view = renderApp(<DishFormDialog dish={dish} open onClose={vi.fn()} />);
+    await userEvent.clear(screen.getByLabelText('Name'));
+    await userEvent.type(screen.getByLabelText('Name'), 'Renamed');
+    view.rerender(<DishFormDialog dish={{ ...dish, stock: 4 } as Dish} open onClose={vi.fn()} />);
+    expect(screen.getByLabelText('Name')).toHaveValue('Renamed');
+  });
+  it('the server rejecting a field marks THAT field, in our language', async () => {
+    mockFetch(() =>
+      apiError(400, 'VALIDATION_FAILED', 'Invalid body', [
+        { path: 'name', message: 'String must contain at most 80 character(s)' },
+        { path: 'modifierGroups.0.name', message: 'Required' },
+      ]),
+    );
+    const dish = steak() as unknown as Dish;
+    renderApp(<DishFormDialog dish={dish} open onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const alerts = await screen.findAllByText('This value is not accepted');
+    expect(alerts.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/must contain at most/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
   });
 });

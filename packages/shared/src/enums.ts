@@ -12,7 +12,8 @@ export const itemStatuses = ['draft', 'sent', 'cooking', 'ready', 'served', 'can
 export const ItemStatus = z.enum(itemStatuses);
 export type ItemStatus = z.infer<typeof ItemStatus>;
 
-export const orderStatuses = ['open', 'paid'] as const;
+/** `closed`: a check with nothing to bill (opened by mistake, or everything cancelled) that was closed to free the table. */
+export const orderStatuses = ['open', 'paid', 'closed'] as const;
 export const OrderStatus = z.enum(orderStatuses);
 export type OrderStatus = z.infer<typeof OrderStatus>;
 

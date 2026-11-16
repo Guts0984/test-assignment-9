@@ -13,6 +13,7 @@ import { formatMoney } from '@/shared/lib/money';
 import { Alert } from '@/shared/ui/alert';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
+import { RefreshFailed } from '@/shared/ui/refresh-failed';
 import { Spinner } from '@/shared/ui/spinner';
 
 /** The manager's menu: dishes, modifier rules and portions left. */
@@ -26,8 +27,8 @@ export const MenuManager = () => {
   const [editing, setEditing] = useState<{ dish: Dish | null } | null>(null);
 
   if (menu.isLoading) return <Spinner label={common('loading')} />;
-  if (menu.error) return <Alert tone="error">{message(menu.error)}</Alert>;
-  const groups = groupByCategory(menu.data ?? []);
+  if (!menu.data) return <Alert tone="error">{message(menu.error)}</Alert>;
+  const groups = groupByCategory(menu.data);
 
   return (
     <section aria-labelledby="menu-title" className="flex flex-col gap-4">
@@ -37,6 +38,7 @@ export const MenuManager = () => {
         </h1>
         <Button onClick={() => setEditing({ dish: null })}>{t('add')}</Button>
       </div>
+      {menu.isError ? <RefreshFailed /> : null}
       {groups.length === 0 ? <p className="text-muted-foreground">{t('empty')}</p> : null}
       {groups.map((g) => (
         <div key={g.category} className="flex flex-col gap-2">

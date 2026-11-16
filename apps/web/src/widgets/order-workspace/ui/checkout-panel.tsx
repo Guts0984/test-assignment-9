@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import { useState } from 'react';
-import type { Order } from '@app/shared';
+import type { Order, PaymentResult } from '@app/shared';
 import { hasDrafts } from '@/entities/order/model';
 import { PaymentForm } from '@/features/pay-order';
 import { SplitPanel, describePartKey } from '@/features/split-bill';
@@ -25,12 +25,20 @@ export const CheckoutPanel = ({ order }: { order: Order }) => {
   const o = useTranslations('order');
   const locale = useLocale() as Locale;
   const [pick, setPick] = useState<{ amount: number; label?: string } | null>(null);
+  // The payment that closed the check: the PaymentForm is gone by then, but the cashier still has to
+  // see the change to give back (also when the answer is the replay of a payment whose first answer got lost).
+  const [lastPaid, setLastPaid] = useState<PaymentResult | null>(null);
   const money = (n: number) => formatMoney(n, locale);
 
-  if (order.status === 'paid') {
+  if (order.status !== 'open') {
     return (
       <div className="flex flex-col gap-4">
         <Alert tone="success">{t('paidDone')}</Alert>
+        {lastPaid && lastPaid.payment.method === 'cash' && lastPaid.payment.change > 0 ? (
+          <Alert tone="info">
+            {t('changeGivenFinal', { amount: money(lastPaid.payment.change) })}
+          </Alert>
+        ) : null}
         <dl className="flex flex-col gap-1">
           <Row label={o('total')} value={money(order.total)} strong />
         </dl>
@@ -42,6 +50,7 @@ export const CheckoutPanel = ({ order }: { order: Order }) => {
     );
   }
 
+  const pending = order.items.filter((i) => ['sent', 'cooking', 'ready'].includes(i.status)).length;
   const suggested = pick ? Math.min(pick.amount, order.remaining) : order.remaining;
 
   return (
@@ -59,16 +68,25 @@ export const CheckoutPanel = ({ order }: { order: Order }) => {
       </dl>
 
       {hasDrafts(order) ? <Alert tone="warning">{t('unsentDrafts')}</Alert> : null}
+      {pending > 0 ? <Alert tone="warning">{t('itemsPending', { count: pending })}</Alert> : null}
       {order.total === 0 ? <Alert tone="info">{t('nothingToPay')}</Alert> : null}
 
       {order.total > 0 ? (
         <>
-          <SplitPanel order={order} onPick={(amount, label) => setPick({ amount, label })} />
+          <SplitPanel
+            order={order}
+            onPick={(amount, label) => setPick({ amount, label })}
+            onReset={() => setPick(null)}
+          />
           <PaymentForm
             order={order}
             suggestedAmount={suggested}
             label={pick?.label}
-            onPaid={() => setPick(null)}
+            blocked={pending > 0}
+            onPaid={(result) => {
+              setPick(null);
+              setLastPaid(result);
+            }}
           />
         </>
       ) : null}

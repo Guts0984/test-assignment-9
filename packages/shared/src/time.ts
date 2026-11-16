@@ -24,6 +24,13 @@ export const dayOf = (instant: Date, tz: string): string => {
   return `${pad(p.year ?? 0, 4)}-${pad(p.month ?? 0)}-${pad(p.day ?? 0)}`;
 };
 
+/**
+ * The restaurant's business day: it starts at `startHour` local time, not at midnight, so a shift that runs
+ * past midnight stays one day (and one run of check numbers). At 01:30 with startHour 4 it is still "yesterday".
+ */
+export const businessDayOf = (instant: Date, tz: string, startHour: number): string =>
+  dayOf(new Date(instant.getTime() - startHour * 3_600_000), tz);
+
 /** Offset (ms) of `tz` from UTC at the given instant. */
 const offsetMs = (instant: Date, tz: string): number => {
   const p = partsOf(instant, tz);

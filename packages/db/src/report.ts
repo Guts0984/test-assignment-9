@@ -18,7 +18,7 @@ export const revenueReport = async (
   const days = await db.execute<DayRow>(sql`
     select day::text as day, sum(total)::bigint as revenue, count(*)::bigint as orders
     from orders
-    where status = 'paid' and total > 0 and day between ${from}::date and ${to}::date
+    where status = 'paid' and day between ${from}::date and ${to}::date
     group by day
     order by day
   `);
@@ -27,15 +27,14 @@ export const revenueReport = async (
     sql`, `,
   );
   const top = await db.execute<DishRow>(sql`
-    select d.id as dish_id, d.name, count(*)::bigint as quantity, sum(oi.unit_price)::bigint as revenue
+    select oi.dish_id, oi.dish_name as name, count(*)::bigint as quantity, sum(oi.unit_price)::bigint as revenue
     from orders o
     join order_items oi on oi.order_id = o.id
-    join dishes d on d.id = oi.dish_id
-    where o.status = 'paid' and o.total > 0
+    where o.status = 'paid'
       and o.day between ${from}::date and ${to}::date
       and oi.status::text in (${statuses})
-    group by d.id, d.name
-    order by sum(oi.unit_price) desc, d.name
+    group by oi.dish_id, oi.dish_name
+    order by sum(oi.unit_price) desc, oi.dish_name
     limit ${topLimit}
   `);
   const dayRows = days.rows.map((r) => ({

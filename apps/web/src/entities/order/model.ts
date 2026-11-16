@@ -1,16 +1,23 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ItemStatus, type Order, type OrderItem, orderTotals } from '@app/shared';
 import { keys } from '@/shared/api/query-keys';
 import { fetchOrder } from './api';
 
-export const useOrder = (id: string, live: boolean) =>
-  useQuery({
+export const useOrder = (id: string, live: boolean) => {
+  const qc = useQueryClient();
+  return useQuery({
     queryKey: keys.order(id),
-    queryFn: () => fetchOrder(id),
+    queryFn: async () => {
+      const fresh = await fetchOrder(id);
+      // A slow answer to an old request must not replace what our own action has just produced.
+      const cached = qc.getQueryData<Order>(keys.order(id));
+      return cached && cached.version > fresh.version ? cached : fresh;
+    },
     refetchInterval: live ? false : 5_000,
   });
+};
 
 export const hasDrafts = (order: Order): boolean => order.items.some((i) => i.status === 'draft');
 export const draftCount = (order: Order): number =>

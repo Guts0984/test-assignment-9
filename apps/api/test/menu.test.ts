@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Dish, Order } from '@app/shared';
+import { restaurantTables } from '@app/db';
 import { add, code, open, send, startSession, type Session } from './world';
 
 let s: Session;
@@ -281,5 +282,118 @@ describe('removing a dish', () => {
     const r = await s.waiter1.post(`/orders/${o.id}/send`, { expectedVersion: cur.version });
     expect(r.status).toBe(409);
     expect(code(r)).toBe('OUT_OF_STOCK');
+  });
+});
+
+describe('editing a dish keeps what stays (ids), so open dialogs and past orders still match', () => {
+  it('groups and modifiers sent with their ids keep them; new ones are created; removed ones are gone', async () => {
+    const created = (await s.manager.post('/dishes', dish())).body as Dish;
+    const [size, extras] = created.modifierGroups;
+    const small = size!.modifiers[0]!;
+    const large = size!.modifiers[1]!;
+    const r = await s.manager.patch(`/dishes/${created.id}`, {
+      modifierGroups: [
+        {
+          id: size!.id,
+          name: 'Portion',
+          min: 1,
+          max: 1,
+          modifiers: [
+            { id: small.id, name: 'Small!', surcharge: 100 }, // renamed, same id
+            { id: large.id, name: 'Large', surcharge: 5000 },
+            { name: 'Huge', surcharge: 9000 }, // new
+          ],
+        },
+        // `extras` is not sent: removed
+      ],
+    });
+    expect(r.status).toBe(200);
+    const d = r.body as Dish;
+    expect(d.modifierGroups).toHaveLength(1);
+    const g = d.modifierGroups[0]!;
+    expect(g.id).toBe(size!.id);
+    expect(g.name).toBe('Portion');
+    expect(g.modifiers.map((m) => [m.id, m.name, m.surcharge])).toEqual([
+      [small.id, 'Small!', 100],
+      [large.id, 'Large', 5000],
+      [expect.any(String), 'Huge', 9000],
+    ]);
+    expect(g.modifiers.map((m) => m.id)).not.toContain(extras!.modifiers[0]!.id);
+  });
+
+  it('a waiter who opened the dish before the edit can still add it with the OLD modifier ids', async () => {
+    const created = (await s.manager.post('/dishes', dish())).body as Dish;
+    const size = created.modifierGroups[0]!;
+    const oldIds = [size.modifiers[0]!.id]; // what the waiter\'s dialog holds
+    // the manager only renames the dish and a modifier (the form sends everything back, with ids)
+    const edit = await s.manager.patch(`/dishes/${created.id}`, {
+      name: 'Pasta v2',
+      modifierGroups: created.modifierGroups.map((gr) => ({
+        id: gr.id,
+        name: gr.name,
+        min: gr.min,
+        max: gr.max,
+        modifiers: gr.modifiers.map((m) => ({
+          id: m.id,
+          name: m.name + '.',
+          surcharge: m.surcharge,
+        })),
+      })),
+    });
+    expect(edit.status).toBe(200);
+    // the waiter now adds it with the ids from before the edit: still valid
+    const [t] = await s.app.db
+      .insert(restaurantTables)
+      .values({ number: 900 + Math.floor(Math.random() * 90000), seats: 4 })
+      .returning();
+    const o = await open(s.waiter1, t!.id, 2);
+    const added = await s.waiter1.post(`/orders/${o.id}/items`, {
+      dishId: created.id,
+      guest: 1,
+      modifierIds: oldIds,
+      expectedVersion: o.version,
+    });
+    expect(added.status).toBe(201);
+    const line = (added.body as Order).items[0]!;
+    expect(line.modifiers[0]).toMatchObject({ modifierId: oldIds[0], name: 'Small.' });
+    // and the line keeps pointing at that modifier after yet another edit
+    await s.manager.patch(`/dishes/${created.id}`, { price: 22000 });
+    const again = (await s.waiter1.get(`/orders/${o.id}`)).body as Order;
+    expect(again.items[0]!.modifiers[0]!.modifierId).toBe(oldIds[0]);
+  });
+
+  it('an id of another dish is not touched: the entry becomes a new group of THIS dish', async () => {
+    const a = (await s.manager.post('/dishes', dish({ name: 'A' }))).body as Dish;
+    const b = (await s.manager.post('/dishes', dish({ name: 'B' }))).body as Dish;
+    const foreign = b.modifierGroups[0]!;
+    const r = await s.manager.patch(`/dishes/${a.id}`, {
+      modifierGroups: [
+        {
+          id: foreign.id,
+          name: 'Hijack',
+          min: 1,
+          max: 1,
+          modifiers: [{ id: foreign.modifiers[0]!.id, name: 'x', surcharge: 1 }],
+        },
+      ],
+    });
+    expect(r.status).toBe(200);
+    const aNow = r.body as Dish;
+    expect(aNow.modifierGroups[0]!.id).not.toBe(foreign.id);
+    const bNow = ((await s.manager.get('/menu')).body.dishes as Dish[]).find((x) => x.id === b.id)!;
+    expect(bNow.modifierGroups[0]!.name).toBe('Size'); // untouched
+    expect(bNow.modifierGroups[0]!.modifiers[0]!.name).toBe('Small');
+  });
+
+  it('the same id twice in one request is a validation error', async () => {
+    const created = (await s.manager.post('/dishes', dish())).body as Dish;
+    const gr = created.modifierGroups[0]!;
+    const body = {
+      modifierGroups: [
+        { id: gr.id, name: 'A', min: 1, max: 1, modifiers: [{ name: 'x', surcharge: 0 }] },
+        { id: gr.id, name: 'B', min: 1, max: 1, modifiers: [{ name: 'y', surcharge: 0 }] },
+      ],
+    };
+    expect((await s.manager.patch(`/dishes/${created.id}`, body)).status).toBe(400);
   });
 });

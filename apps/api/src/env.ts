@@ -42,6 +42,8 @@ export const envSchema = z.object({
       { message: 'Unknown IANA time zone' },
     )
     .default('Europe/Kyiv'),
+  /** Local hour at which the business day (and the daily check numbering) starts. 0 = midnight. */
+  RESTAURANT_DAY_START_HOUR: int(0, 12).default(4),
 
   // ---- sessions & cookies ----
   SESSION_TTL_HOURS: int(1, 24 * 30).default(12),
@@ -74,8 +76,10 @@ export const envSchema = z.object({
   LOGIN_MAX_CONCURRENCY: int(1, 64).default(4),
 
   // ---- SSE connection caps ----
-  SSE_MAX_PER_IP: int(1, 1000).default(10),
+  SSE_MAX_PER_IP: int(1, 1000).default(60),
   SSE_MAX_PER_USER: int(1, 1000).default(5),
+  /** Keep-alive interval of an event stream; the session is re-checked on every beat. */
+  SSE_HEARTBEAT_MS: int(50, 600_000).default(15_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

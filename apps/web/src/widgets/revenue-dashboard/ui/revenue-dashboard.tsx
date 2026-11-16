@@ -3,21 +3,41 @@
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
+import { useConfig } from '@/entities/config/model';
 import { fetchRevenue } from '@/entities/report/api';
 import { keys } from '@/shared/api/query-keys';
 import { usePathname, useRouter } from '@/shared/i18n/navigation';
 import type { Locale } from '@/shared/i18n/routing';
 import { useErrorMessage } from '@/shared/lib/error-message';
+import { formatDay } from '@/shared/lib/format-day';
 import { formatMoney } from '@/shared/lib/money';
 import { type Period, lastDays, readPeriod } from '@/shared/lib/period';
 import { Alert } from '@/shared/ui/alert';
+import { RefreshFailed } from '@/shared/ui/refresh-failed';
 import { Button } from '@/shared/ui/button';
 import { Field } from '@/shared/ui/field';
 import { Input } from '@/shared/ui/input';
 import { Spinner } from '@/shared/ui/spinner';
 
-/** Revenue and top dishes. The period is part of the URL, so a link or a reload shows the same report. */
+/**
+ * Revenue and top dishes. The period is part of the URL, so a link or a reload shows the same report.
+ * "Today" is the server's business day (its time zone and day start), not the device clock.
+ */
 export const RevenueDashboard = () => {
+  const common = useTranslations('common');
+  const message = useErrorMessage();
+  const config = useConfig();
+  if (!config.data) {
+    return config.isError ? (
+      <Alert tone="error">{message(config.error)}</Alert>
+    ) : (
+      <Spinner label={common('loading')} />
+    );
+  }
+  return <RevenueDashboardBody today={config.data.today} />;
+};
+
+const RevenueDashboardBody = ({ today }: { today: string }) => {
   const t = useTranslations('report');
   const common = useTranslations('common');
   const locale = useLocale() as Locale;
@@ -25,9 +45,10 @@ export const RevenueDashboard = () => {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const { period, problem } = readPeriod(params ?? new URLSearchParams(), new Date());
+  const { period, problem } = readPeriod(params ?? new URLSearchParams(), today);
 
-  const setPeriod = (p: Period) => router.replace(`${pathname}?from=${p.from}&to=${p.to}`);
+  // Each change of period is a history step: "Back" returns to the previous period, not off the page.
+  const setPeriod = (p: Period) => router.push(`${pathname}?from=${p.from}&to=${p.to}`);
   const query = useQuery({
     queryKey: keys.report(period.from, period.to),
     queryFn: () => fetchRevenue(period.from, period.to),
@@ -52,10 +73,12 @@ export const RevenueDashboard = () => {
       </h1>
 
       <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => e.preventDefault()}>
-        <Field label={t('from')} error={problem ? problemText : undefined}>
+        <Field label={t('from')}>
           {(p) => (
             <Input
               {...p}
+              aria-invalid={problem !== null}
+              aria-describedby={problem ? 'period-error' : undefined}
               type="date"
               value={period.from}
               max={period.to}
@@ -67,6 +90,8 @@ export const RevenueDashboard = () => {
           {(p) => (
             <Input
               {...p}
+              aria-invalid={problem !== null}
+              aria-describedby={problem ? 'period-error' : undefined}
               type="date"
               value={period.to}
               min={period.from}
@@ -81,16 +106,22 @@ export const RevenueDashboard = () => {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setPeriod(lastDays(d, new Date()))}
+              onClick={() => setPeriod(lastDays(d, today))}
             >
               {t(`last${d}`)}
             </Button>
           ))}
         </div>
       </form>
+      {problem ? (
+        <p id="period-error" role="alert" className="text-sm font-medium text-destructive">
+          {problemText}
+        </p>
+      ) : null}
 
       {problem === null && query.isLoading ? <Spinner label={common('loading')} /> : null}
-      {query.error ? <Alert tone="error">{message(query.error)}</Alert> : null}
+      {query.error && !query.data ? <Alert tone="error">{message(query.error)}</Alert> : null}
+      {query.error && query.data ? <RefreshFailed /> : null}
 
       {report ? (
         report.orders === 0 ? (
@@ -126,14 +157,14 @@ export const RevenueDashboard = () => {
                   <li
                     key={d.day}
                     className="flex h-full min-w-[6px] flex-1 flex-col justify-end"
-                    title={`${d.day}: ${money(d.revenue)}`}
+                    title={`${formatDay(d.day, locale)}: ${money(d.revenue)}`}
                   >
                     <span
                       className="w-full rounded-t bg-primary"
                       style={{ height: `${Math.max(2, Math.round((d.revenue / max) * 100))}%` }}
                     />
                     <span className="sr-only">
-                      {d.day}: {money(d.revenue)}
+                      {formatDay(d.day, locale)}: {money(d.revenue)}
                     </span>
                   </li>
                 ))}
@@ -164,7 +195,7 @@ export const RevenueDashboard = () => {
                   </thead>
                   <tbody>
                     {report.topDishes.map((d, i) => (
-                      <tr key={d.dishId} className="border-t">
+                      <tr key={`${d.dishId}|${d.name}`} className="border-t">
                         <td className="px-3 py-2">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{d.name}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{d.quantity}</td>

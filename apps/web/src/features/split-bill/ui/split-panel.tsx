@@ -97,10 +97,13 @@ export const describePartKey = (
 export const SplitPanel = ({
   order,
   onPick,
+  onReset,
 }: {
   order: Order;
   /** Called with the amount (kopecks) and a label when the waiter chooses a part to pay. */
   onPick: (amount: number, label: string) => void;
+  /** Called when the choice made so far no longer applies (another mode, another number of parts). */
+  onReset?: () => void;
 }) => {
   const t = useTranslations('checkout');
   const common = useTranslations('common');
@@ -159,7 +162,10 @@ export const SplitPanel = ({
               name="split-mode"
               value={m}
               checked={mode === m}
-              onChange={() => setMode(m)}
+              onChange={() => {
+                setMode(m);
+                onReset?.();
+              }}
               className="sr-only"
             />
             {m === 'whole' ? t('whole') : m === 'equal' ? t('equal') : t('perGuest')}
@@ -181,7 +187,10 @@ export const SplitPanel = ({
             value={partsText}
             aria-invalid={!partsValid}
             aria-describedby={partsValid ? undefined : 'split-parts-error'}
-            onChange={(e) => setPartsText(e.target.value)}
+            onChange={(e) => {
+              setPartsText(e.target.value);
+              onReset?.();
+            }}
             className="w-32"
           />
           {!partsValid ? (

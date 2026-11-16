@@ -18,7 +18,8 @@
     "serverUnreachable": "Cannot reach the server. Check the connection.",
     "somethingWrong": "Something went wrong. Please try again.",
     "live": "Live",
-    "offline": "Reconnecting…"
+    "offline": "Reconnecting…",
+    "refreshFailed": "Cannot refresh right now. Showing the last known data; it will update once the connection is back."
   },
   "roles": {
     "waiter": "Waiter",
@@ -88,7 +89,6 @@
     "paidBanner": "This check is paid and can no longer be changed.",
     "readOnly": "This is another waiter's check. You can look, but not change it.",
     "reloaded": "The check was changed elsewhere and has been reloaded. Please repeat your action.",
-    "version": "v{version}",
     "searchPlaceholder": "Filter dishes…",
     "allCategories": "All",
     "status": {
@@ -103,7 +103,11 @@
     "closeEmpty": "Close empty check",
     "closeEmptyTitle": "Close this check?",
     "closeEmptyText": "Nothing was ordered or billed on it. The table becomes free.",
-    "closeEmptyConfirm": "Close check"
+    "closeEmptyConfirm": "Close check",
+    "payAfterServed": "Payment opens once every item is served or cancelled.",
+    "closedBanner": "This check was closed without a bill.",
+    "guestsLess": "Fewer guests",
+    "guestsMore": "More guests"
   },
   "picker": {
     "title": "{dish}",
@@ -151,7 +155,9 @@
     "nothingToPay": "There is nothing to pay yet.",
     "cashShort": "Cash",
     "cardShort": "Card",
-    "partPaid": "Paid"
+    "partPaid": "Paid",
+    "itemsPending": "{count, plural, one {# item is not served yet} other {# items are not served yet}}. Serve or cancel before taking payment.",
+    "changeGivenFinal": "Give the guest change: {amount}"
   },
   "kitchen": {
     "title": "Kitchen",
@@ -215,7 +221,8 @@
     "maxOptions": "Max cannot exceed the number of options",
     "maxOne": "Max must be at least 1",
     "needOption": "Add at least one option",
-    "empty": "No dishes yet"
+    "empty": "No dishes yet",
+    "fieldRejected": "This value is not accepted"
   },
   "report": {
     "title": "Revenue",
@@ -255,6 +262,10 @@
     "NETWORK": "Cannot reach the server. Check the connection.",
     "ORDER_PARTIALLY_PAID": "Part of this check is already paid, so sent items can no longer be cancelled.",
     "NOT_EMPTY": "This check has items to bill. Pay it instead.",
-    "ITEMS_IN_PROGRESS": "Some items are still being prepared or are waiting to be served. Try again once they are served."
+    "ITEMS_IN_PROGRESS": "Serve or cancel every item before taking payment."
+  },
+  "meta": {
+    "title": "Restaurant",
+    "description": "Restaurant orders"
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, dayOf, zonedTimeToUtc } from './time';
+import { addDays, businessDayOf, dayOf, zonedTimeToUtc } from './time';
 
 const TZ = 'Europe/Kyiv';
 
@@ -41,5 +41,25 @@ describe('addDays', () => {
     expect(addDays('2024-02-28', 1)).toBe('2024-02-29');
     expect(addDays('2025-02-28', 1)).toBe('2025-03-01');
     expect(addDays('2025-03-01', -60)).toBe('2024-12-31');
+  });
+});
+
+describe('businessDayOf', () => {
+  const TZ = 'Europe/Kyiv';
+  it('a shift past midnight stays one day until the day-start hour', () => {
+    // 2025-06-15 → local 00:30 on the 16th (21:30Z) is still the 15th with a 4 o'clock start
+    expect(businessDayOf(new Date('2025-06-15T21:30:00Z'), TZ, 4)).toBe('2025-06-15');
+    expect(businessDayOf(new Date('2025-06-16T00:59:59Z'), TZ, 4)).toBe('2025-06-15'); // 03:59:59 local
+    expect(businessDayOf(new Date('2025-06-16T01:00:00Z'), TZ, 4)).toBe('2025-06-16'); // 04:00:00 local
+  });
+  it('start hour 0 is the plain calendar day', () => {
+    for (const iso of ['2025-06-15T21:30:00Z', '2025-01-01T22:30:00Z', '2025-07-01T20:59:59Z']) {
+      expect(businessDayOf(new Date(iso), TZ, 0)).toBe(dayOf(new Date(iso), TZ));
+    }
+  });
+  it('works across the winter/summer clock changes and the new year', () => {
+    expect(businessDayOf(new Date('2025-01-01T01:30:00Z'), TZ, 4)).toBe('2024-12-31'); // 03:30 local
+    expect(businessDayOf(new Date('2025-03-30T00:30:00Z'), TZ, 4)).toBe('2025-03-29'); // 02:30, day of the switch
+    expect(businessDayOf(new Date('2025-10-26T22:30:00Z'), TZ, 4)).toBe('2025-10-26'); // 00:30 after the switch back
   });
 });

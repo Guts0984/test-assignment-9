@@ -8,10 +8,10 @@ import { useOrder, useStale, setStale } from '@/entities/order';
 import { useMe } from '@/entities/session/model';
 import { AddItemDialog } from '@/features/add-order-item';
 import { useIsLive } from '@/features/realtime-sync';
-import { isApiError } from '@/shared/api/client';
 import { Link } from '@/shared/i18n/navigation';
 import { useErrorMessage } from '@/shared/lib/error-message';
 import { Alert } from '@/shared/ui/alert';
+import { RefreshFailed } from '@/shared/ui/refresh-failed';
 import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/shared/ui/dialog';
 import { Spinner } from '@/shared/ui/spinner';
@@ -34,7 +34,7 @@ export const OrderWorkspace = ({ orderId }: { orderId: string }) => {
   const [paying, setPaying] = useState(false);
 
   if (order.isLoading) return <Spinner label={common('loading')} />;
-  if (order.error || !order.data) {
+  if (!order.data) {
     return (
       <div className="flex flex-col gap-3">
         <Alert tone="error">{message(order.error)}</Alert>
@@ -70,10 +70,12 @@ export const OrderWorkspace = ({ orderId }: { orderId: string }) => {
         </Alert>
       ) : null}
       {o.status === 'paid' ? <Alert tone="success">{t('paidBanner')}</Alert> : null}
+      {o.status === 'closed' ? <Alert tone="info">{t('closedBanner')}</Alert> : null}
       {!mine && o.status === 'open' ? <Alert tone="info">{t('readOnly')}</Alert> : null}
-      {menu.error && !isApiError(menu.error) ? (
-        <Alert tone="error">{message(menu.error)}</Alert>
-      ) : null}
+      {order.isError ? <RefreshFailed /> : null}
+      {/* A menu that cannot be loaded must not look like an empty menu */}
+      {menu.isError && !menu.data ? <Alert tone="error">{message(menu.error)}</Alert> : null}
+      {menu.isError && menu.data && !order.isError ? <RefreshFailed /> : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
         <MenuPanel dishes={menu.data ?? []} disabled={!editable} onPick={setPicked} />

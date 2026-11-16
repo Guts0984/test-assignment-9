@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   AddItemBody,
+  GuestsBody,
   OpenOrderBody,
   Order,
   PaymentBody,
@@ -60,6 +61,19 @@ export class OrdersController {
   })
   get(@Param('id') id: string) {
     return this.orders.get(id);
+  }
+
+  @Patch('orders/:id')
+  @Endpoint({
+    access: ['waiter'],
+    tag: 'Orders',
+    summary:
+      'Change the number of guests of an open check (own checks only). The service fee follows the new count.',
+    body: GuestsBody,
+    response: Order,
+  })
+  setGuests(@Param('id') id: string, @Body() body: GuestsBody, @Req() req: AppRequest) {
+    return this.orders.setGuests(user(req), id, body.guests, body.expectedVersion);
   }
 
   @Post('orders/:id/items')

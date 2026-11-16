@@ -10,6 +10,7 @@ const baseEnv = z.object({
 const seedEnv = baseEnv.extend({
   // Not sensitive: a business setting with a sane default.
   RESTAURANT_TZ: z.string().min(1).default('Europe/Kyiv'),
+  RESTAURANT_DAY_START_HOUR: z.coerce.number().int().min(0).max(12).default(4),
   // Demo passwords come from the environment only (see .env.example), never from code.
   SEED_WAITER_PASSWORD: z.string().min(8),
   SEED_COOK_PASSWORD: z.string().min(8),
@@ -53,6 +54,7 @@ const main = async (): Promise<void> => {
       const e = seedEnv.parse(process.env);
       const summary = await seedDatabase(handle.db, {
         tz: e.RESTAURANT_TZ,
+        dayStartHour: e.RESTAURANT_DAY_START_HOUR,
         reset: e.SEED_RESET,
         passwords: {
           waiter: e.SEED_WAITER_PASSWORD,

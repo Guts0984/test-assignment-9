@@ -43,30 +43,35 @@ describe('subscribeToEvents', () => {
     stop();
     expect(src.closed).toBe(true);
   });
-  it('opens a new stream itself when the browser gave up (server answered with an error status)', () => {
+  it('opens a new stream itself when the browser gave up (server answered with an error status)', async () => {
     vi.useFakeTimers();
     try {
       const made: ReturnType<typeof makeFakeSource>[] = [];
       const h = { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() };
-      const stop = subscribeToEvents(h, () => {
-        const src = makeFakeSource();
-        made.push(src);
-        return src as unknown as EventSource;
-      });
+      const stop = subscribeToEvents(
+        h,
+        () => {
+          const src = makeFakeSource();
+          made.push(src);
+          return src as unknown as EventSource;
+        },
+        () => Promise.resolve(true),
+      );
       expect(made).toHaveLength(1);
       // readyState CLOSED: EventSource will never reconnect on its own
       Object.assign(made[0]!, { readyState: 2 });
       made[0]!.onerror?.();
       expect(h.onClose).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1_999);
       expect(made).toHaveLength(1); // not instantly: back off first
-      vi.advanceTimersByTime(2_000);
+      await vi.advanceTimersByTimeAsync(1);
       expect(made).toHaveLength(2);
       // a second failure waits longer (2s → 4s)
       Object.assign(made[1]!, { readyState: 2 });
       made[1]!.onerror?.();
-      vi.advanceTimersByTime(3_999);
+      await vi.advanceTimersByTimeAsync(3_999);
       expect(made).toHaveLength(2);
-      vi.advanceTimersByTime(1);
+      await vi.advanceTimersByTimeAsync(1);
       expect(made).toHaveLength(3);
       made[2]!.emit('ready', {});
       expect(h.onOpen).toHaveBeenCalledOnce();
@@ -74,24 +79,51 @@ describe('subscribeToEvents', () => {
       expect(made[2]!.closed).toBe(true);
       Object.assign(made[2]!, { readyState: 2 });
       made[2]!.onerror?.();
-      vi.advanceTimersByTime(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
       expect(made).toHaveLength(3); // after unsubscribe nothing is reopened
     } finally {
       vi.useRealTimers();
     }
   });
-  it('while the browser is still retrying by itself (CONNECTING) we do not open a second stream', () => {
+  it('while the browser is still retrying by itself (CONNECTING) we do not open a second stream', async () => {
     vi.useFakeTimers();
     try {
       const made: ReturnType<typeof makeFakeSource>[] = [];
-      subscribeToEvents({ onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }, () => {
-        const src = makeFakeSource();
-        made.push(src);
-        return src as unknown as EventSource;
-      });
+      subscribeToEvents(
+        { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() },
+        () => {
+          const src = makeFakeSource();
+          made.push(src);
+          return src as unknown as EventSource;
+        },
+        () => Promise.resolve(true),
+      );
       Object.assign(made[0]!, { readyState: 0 });
       made[0]!.onerror?.();
-      vi.advanceTimersByTime(120_000);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(made).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('stops for good when the session is gone (401): the app is told, no new stream is opened', async () => {
+    vi.useFakeTimers();
+    try {
+      const made: ReturnType<typeof makeFakeSource>[] = [];
+      const h = { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn(), onUnauthorized: vi.fn() };
+      subscribeToEvents(
+        h,
+        () => {
+          const src = makeFakeSource();
+          made.push(src);
+          return src as unknown as EventSource;
+        },
+        () => Promise.resolve(false),
+      );
+      Object.assign(made[0]!, { readyState: 2 });
+      made[0]!.onerror?.();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(h.onUnauthorized).toHaveBeenCalledOnce();
       expect(made).toHaveLength(1);
     } finally {
       vi.useRealTimers();
@@ -109,6 +141,12 @@ describe('subscribeToEvents', () => {
 });
 
 describe('which caches an event invalidates', () => {
+  it('order.changed → that check and the tables (not the kitchen, nothing to cook changed)', () => {
+    expect(keysToInvalidate({ type: 'order.changed', orderId: ID })).toEqual([
+      ['order', ID],
+      ['tables'],
+    ]);
+  });
   it('item.changed → that check, the kitchen and the tables', () => {
     const keys = keysToInvalidate({
       type: 'item.changed',

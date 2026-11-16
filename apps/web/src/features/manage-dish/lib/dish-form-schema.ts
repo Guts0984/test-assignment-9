@@ -24,11 +24,14 @@ const money = (message: string) =>
 /** Form (strings and numbers as typed) → the exact payload the API accepts (DishCreate). */
 export const dishFormSchema = (m: DishFormMessages) => {
   const modifier = z.object({
+    /** The id of an existing modifier (kept on save, so past and open orders still point at it). */
+    dbId: z.string().optional(),
     name: z.string().trim().min(1, m.nameRequired).max(LIMITS.maxNameLength),
     surcharge: money(m.priceInvalid),
   });
   const group = z
     .object({
+      dbId: z.string().optional(),
       name: z.string().trim().min(1, m.nameRequired).max(LIMITS.maxNameLength),
       min: z.coerce.number().int().min(0),
       max: z.coerce.number().int().min(1, m.maxOne),
@@ -44,7 +47,13 @@ export const dishFormSchema = (m: DishFormMessages) => {
     category: z.string().trim().min(1, m.categoryRequired).max(LIMITS.maxNameLength),
     price: money(m.priceInvalid),
     station: z.enum(['kitchen', 'bar']),
-    stock: z.string().refine((s) => s.trim() === '' || /^\d{1,6}$/.test(s.trim()), m.stockInvalid),
+    stock: z
+      .string()
+      .refine(
+        (s) =>
+          s.trim() === '' || (/^\d{1,6}$/.test(s.trim()) && Number(s.trim()) <= LIMITS.maxStock),
+        m.stockInvalid,
+      ),
     modifierGroups: z.array(group).max(LIMITS.maxModifierGroups),
   });
 };
@@ -67,10 +76,12 @@ export const dishToForm = (dish: Dish, locale: Locale): DishFormValues => ({
   station: dish.station,
   stock: dish.stock === null ? '' : String(dish.stock),
   modifierGroups: dish.modifierGroups.map((g) => ({
+    dbId: g.id,
     name: g.name,
     min: g.min,
     max: g.max,
     modifiers: g.modifiers.map((x) => ({
+      dbId: x.id,
       name: x.name,
       surcharge: moneyToInput(x.surcharge, locale),
     })),
@@ -88,10 +99,12 @@ export const formToPayload = (v: DishFormValues): DishCreate => {
     station: v.station,
     stock: v.stock.trim() === '' ? null : Number(v.stock.trim()),
     modifierGroups: v.modifierGroups.map((g) => ({
+      ...(g.dbId ? { id: g.dbId } : {}),
       name: g.name.trim(),
       min: Number(g.min),
       max: Number(g.max),
       modifiers: g.modifiers.map((x) => ({
+        ...(x.dbId ? { id: x.dbId } : {}),
         name: x.name.trim(),
         surcharge: parseMoneyInput(x.surcharge) ?? 0,
       })),

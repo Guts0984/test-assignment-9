@@ -115,7 +115,7 @@ describe('takeStock / returnStock (the last portion)', () => {
     const dish = await makeDish(t.db, { stock: null });
     const results = await Promise.all(range(40).map(() => takeStock(t.db, dish.id, 1)));
     expect(results.every((r) => r !== undefined && r.stock === null)).toBe(true);
-    await returnStock(t.db, dish.id, 5);
+    await returnStock(t.db, dish.id, 5, 0);
     const [row] = await t.db.select().from(dishes).where(eq(dishes.id, dish.id));
     expect(row?.stock).toBeNull();
   });
@@ -131,7 +131,7 @@ describe('takeStock / returnStock (the last portion)', () => {
     const ops = range(40).map((i) =>
       i % 2 === 0
         ? takeStock(t.db, dish.id, 1).then((r) => (r ? -1 : 0))
-        : returnStock(t.db, dish.id, 1).then(() => 1),
+        : returnStock(t.db, dish.id, 1, 0).then(() => 1),
     );
     const deltas = await Promise.all(ops);
     const [row] = await t.db.select().from(dishes).where(eq(dishes.id, dish.id));
@@ -139,11 +139,31 @@ describe('takeStock / returnStock (the last portion)', () => {
     expect(row!.stock!).toBeGreaterThanOrEqual(0);
   });
 
+  it('a portion comes back only if it was really taken, and nobody set the stock by hand since', async () => {
+    const dish = await makeDish(t.db, { stock: 3 });
+    const taken = await takeStock(t.db, dish.id, 1);
+    expect(taken).toEqual({ stock: 2, epoch: 0 });
+    // taken under epoch 0 → comes back
+    expect(await returnStock(t.db, dish.id, 1, taken!.epoch)).toEqual({ stock: 3 });
+    // an item that took nothing (unlimited at the time) returns nothing
+    expect(await returnStock(t.db, dish.id, 1, null)).toBeUndefined();
+    // the manager set the stock by hand: the epoch moves on, old portions are not added back
+    await t.db.update(dishes).set({ stock: 0, stockEpoch: 1 }).where(eq(dishes.id, dish.id));
+    expect(await returnStock(t.db, dish.id, 1, 0)).toBeUndefined();
+    const [row] = await t.db.select().from(dishes).where(eq(dishes.id, dish.id));
+    expect(row?.stock).toBe(0); // the manager's stop-list stands
+    // a dish that became unlimited after the item was sent never grows a number
+    await t.db.update(dishes).set({ stock: null }).where(eq(dishes.id, dish.id));
+    expect(await returnStock(t.db, dish.id, 1, 1)).toBeUndefined();
+    const [row2] = await t.db.select().from(dishes).where(eq(dishes.id, dish.id));
+    expect(row2?.stock).toBeNull();
+  });
+
   it('rejects nonsense quantities', async () => {
     const dish = await makeDish(t.db, { stock: 3 });
     for (const q of [0, -1, 1.5, NaN]) {
       await expect(takeStock(t.db, dish.id, q)).rejects.toThrow(RangeError);
-      await expect(returnStock(t.db, dish.id, q)).rejects.toThrow(RangeError);
+      await expect(returnStock(t.db, dish.id, q, 0)).rejects.toThrow(RangeError);
     }
   });
 

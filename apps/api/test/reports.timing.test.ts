@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addDays, dayOf } from '@app/shared';
+import { addDays, businessDayOf } from '@app/shared';
 import { PASSWORDS, percentile, startTestApp, type TestApp } from './harness';
 import { as, type Client } from './world';
 
@@ -8,7 +8,7 @@ import { as, type Client } from './world';
 // so other test files cannot steal the CPU and make a latency check flaky.
 let app: TestApp;
 let manager: Client;
-const today = dayOf(new Date(), 'Europe/Kyiv');
+const today = businessDayOf(new Date(), 'Europe/Kyiv', 4);
 const FROM = addDays(today, -60);
 const TO = addDays(today, -1);
 

@@ -3,7 +3,16 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { dishes, orders, payments } from '@app/db';
 import { type Order, orderTotals, splitEqual } from '@app/shared';
-import { add, code, open, send, startSession, type Client, type Session, makeReady } from './world';
+import {
+  add,
+  code,
+  open,
+  send,
+  startSession,
+  type Client,
+  type Session,
+  makeServed,
+} from './world';
 
 let s: Session;
 let odd: { a: string; b: string; c: string };
@@ -40,7 +49,7 @@ const sentOrder = async (c: Client, guests: number): Promise<Order> => {
   o = await add(c, o, odd.a, { guest: 1 });
   o = await add(c, o, odd.b, { guest: 2 });
   o = await add(c, o, odd.c, { guest: Math.min(3, guests) });
-  return makeReady(c, s.cook, await send(c, o));
+  return makeServed(c, s.cook, await send(c, o));
 };
 
 const payBody = (o: Order, over: Record<string, unknown> = {}) => ({
@@ -215,7 +224,7 @@ describe('payments', () => {
     const t = await freshTable();
     let o = await open(s.waiter1, t);
     o = await add(s.waiter1, o, odd.c);
-    o = await makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
+    o = await makeServed(s.waiter1, s.cook, await send(s.waiter1, o));
     await pay(s.waiter1, o);
     const row = (
       (await s.waiter1.get('/tables')).body.tables as { id: string; state: string }[]
@@ -413,7 +422,7 @@ describe('numeric limits (money columns are 32-bit integers)', () => {
     expect(r.status).toBe(422);
     expect(r.body.error.details[0].message).toMatch(/exceed/);
     // the huge check still computes exactly and can be sent, split and paid
-    o = await makeReady(s.waiter1, s.cook, await send(s.waiter1, o));
+    o = await makeServed(s.waiter1, s.cook, await send(s.waiter1, o));
     expect(o.subtotal).toBe(8 * 210_000_000);
     const split = (await s.waiter1.post(`/orders/${o.id}/split`, { mode: 'equal', parts: 7 })).body
       .parts as { total: number }[];

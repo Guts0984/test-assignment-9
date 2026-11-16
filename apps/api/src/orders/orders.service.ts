@@ -25,7 +25,7 @@ import {
   type SplitResult,
   LIMITS,
   allocateByWeights,
-  dayOf,
+  businessDayOf,
   itemUnitPrice,
   orderTotals,
   splitByGuests,
@@ -77,7 +77,7 @@ const bumpVersion = async (tx: Queryable, orderId: string, expected: number): Pr
     .from(orders)
     .where(eq(orders.id, orderId));
   if (!cur) throw notFound('Order');
-  if (cur.status === 'paid')
+  if (cur.status !== 'open')
     throw conflict('This check is already paid and can no longer change', 'ORDER_PAID');
   throw conflict(
     `The check was changed by someone else (current version ${cur.version}, yours ${expected}). Reload and retry.`,
@@ -129,7 +129,11 @@ export class OrdersService {
   // ---- open / read ------------------------------------------------------------------------------
 
   async open(user: AuthUser, body: OpenOrderBody): Promise<Order> {
-    const day = dayOf(new Date(), this.env.RESTAURANT_TZ);
+    const day = businessDayOf(
+      new Date(),
+      this.env.RESTAURANT_TZ,
+      this.env.RESTAURANT_DAY_START_HOUR,
+    );
     const id = await this.db.transaction(async (tx) => {
       const [table] = await tx
         .select()
@@ -169,6 +173,12 @@ export class OrdersService {
   // ---- items ------------------------------------------------------------------------------------
 
   async addItem(user: AuthUser, orderId: string, body: AddItemBody): Promise<Order> {
+    const order = await this.addItemTx(user, orderId, body);
+    this.events.emit({ type: 'order.changed', orderId }); // other devices showing this check refetch it
+    return order;
+  }
+
+  private addItemTx(user: AuthUser, orderId: string, body: AddItemBody): Promise<Order> {
     return this.db.transaction(async (tx) => {
       const head = await getHead(tx, orderId);
       assertOwner(user, head);
@@ -274,7 +284,8 @@ export class OrdersService {
             'ORDER_PARTIALLY_PAID',
           );
         }
-        const back = await returnStock(tx, item.dishId, 1);
+        const back = await returnStock(tx, item.dishId, 1, item.stockEpoch);
+        if (back) events.push({ type: 'menu.changed' }); // the manager's "N left" changes
         if (back?.stock === 1) {
           events.push({ type: 'stoplist.changed', dishId: item.dishId, stopListed: false });
         }
@@ -290,7 +301,7 @@ export class OrdersService {
       }
       return requireOrder(tx, orderId);
     });
-    this.events.emit(...events);
+    this.events.emit({ type: 'order.changed', orderId }, ...events);
     return order;
   }
 
@@ -313,11 +324,16 @@ export class OrdersService {
       // One atomic decrement per dish, in id order (no deadlocks between two sends). The guard lives
       // in the UPDATE itself, so two waiters racing for the last portion cannot both succeed.
       const short: string[] = [];
+      // dish → the stock epoch its portions were taken under (absent for unlimited dishes: nothing taken)
+      const epochs = new Map<string, number>();
       for (const dishId of [...wanted.keys()].sort()) {
         const taken = await takeStock(tx, dishId, wanted.get(dishId) ?? 1);
         if (!taken) short.push(dishId);
-        else if (taken.stock === 0)
-          events.push({ type: 'stoplist.changed', dishId, stopListed: true });
+        else {
+          if (taken.stock !== null) epochs.set(dishId, taken.epoch);
+          if (taken.stock === 0)
+            events.push({ type: 'stoplist.changed', dishId, stopListed: true });
+        }
       }
       if (short.length > 0) {
         const rows = await tx
@@ -339,11 +355,22 @@ export class OrdersService {
         throw conflict('Not enough portions left; nothing was sent', 'OUT_OF_STOCK', details);
       }
 
+      if (epochs.size > 0) events.push({ type: 'menu.changed' }); // the manager's "N left" changes
       const draftIds = drafts.map((d) => d.id);
-      await tx
-        .update(orderItems)
-        .set({ status: 'sent', sentAt: new Date() })
-        .where(and(inArray(orderItems.id, draftIds), eq(orderItems.status, 'draft')));
+      for (const dishId of wanted.keys()) {
+        await tx
+          .update(orderItems)
+          .set({ status: 'sent', sentAt: new Date(), stockEpoch: epochs.get(dishId) ?? null })
+          .where(
+            and(
+              inArray(
+                orderItems.id,
+                drafts.filter((d) => d.dishId === dishId).map((d) => d.id),
+              ),
+              eq(orderItems.status, 'draft'),
+            ),
+          );
+      }
       for (const id of draftIds)
         events.push({ type: 'item.changed', orderId, itemId: id, status: 'sent' });
       events.push({ type: 'table.changed', tableId: head.tableId });
@@ -390,6 +417,41 @@ export class OrdersService {
     return requireOrder(this.db, orderId);
   }
 
+  /** Changes the number of guests (a 6th guest arrives: the service fee starts to apply). */
+  async setGuests(
+    user: AuthUser,
+    orderId: string,
+    guests: number,
+    expectedVersion: number,
+  ): Promise<Order> {
+    const order = await this.db.transaction(async (tx) => {
+      const head = await getHead(tx, orderId);
+      assertOwner(user, head);
+      await bumpVersion(tx, orderId, expectedVersion);
+      const [used] = await tx
+        .select({ max: sql<number>`coalesce(max(${orderItems.guest}), 0)::int` })
+        .from(orderItems)
+        .where(and(eq(orderItems.orderId, orderId), ne(orderItems.status, 'cancelled')));
+      if (guests < (used?.max ?? 0)) {
+        throw unprocessable('Guests with items cannot be removed', [
+          { path: 'guests', message: `Guest ${used?.max} has items on this check` },
+        ]);
+      }
+      await tx.update(orders).set({ guests }).where(eq(orders.id, orderId));
+      const after = await requireOrder(tx, orderId);
+      // The fee depends on the guest count: never let the total fall below what was already paid.
+      if (after.paidAmount > after.total) {
+        throw conflict(
+          'Part of this check is already paid; the guest count cannot be lowered that far',
+          'ORDER_PARTIALLY_PAID',
+        );
+      }
+      return after;
+    });
+    this.events.emit({ type: 'order.changed', orderId });
+    return order;
+  }
+
   /**
    * Closes a check with nothing to bill (opened by mistake, or every item cancelled) so the table is
    * freed. Refused when anything is billable or any money was taken. Draft items are discarded.
@@ -417,12 +479,12 @@ export class OrdersService {
         .where(and(eq(orderItems.orderId, orderId), eq(orderItems.status, 'draft')));
       await tx
         .update(orders)
-        .set({ status: 'paid', subtotal: 0, serviceFee: 0, total: 0, paidAt: new Date() })
+        .set({ status: 'closed', subtotal: 0, serviceFee: 0, total: 0 })
         .where(eq(orders.id, orderId));
       events.push({ type: 'table.changed', tableId: head.tableId });
       return requireOrder(tx, orderId);
     });
-    this.events.emit(...events);
+    this.events.emit({ type: 'order.changed', orderId }, ...events);
     return order;
   }
 
@@ -523,12 +585,15 @@ export class OrdersService {
       if (current.items.some((i) => i.status === 'draft')) {
         throw conflict('Send or remove the draft items before paying');
       }
-      // A paid check is frozen, so the food must not still be on its way: otherwise it would vanish from
-      // the kitchen screen and never reach the guest. (Ready or served items are fine.)
-      if (current.items.some((i) => i.status === 'sent' || i.status === 'cooking')) {
+      // A paid check is frozen, so nothing may still be on its way to the guest: every item must be served
+      // (or cancelled). Otherwise food would vanish from the kitchen screen, or stay "ready" for ever with
+      // nobody able to mark it served.
+      const pending = current.items.filter((i) => ['sent', 'cooking', 'ready'].includes(i.status));
+      if (pending.length > 0) {
         throw conflict(
-          'Some items are still being prepared; take payment when they are ready',
+          'Every item must be served (or cancelled) before the check is paid',
           'ITEMS_IN_PROGRESS',
+          pending.map((i) => ({ path: i.id, message: `${i.dishName}: ${i.status}` })),
         );
       }
       const totals = orderTotals(current.items, current.guests);
@@ -569,7 +634,10 @@ export class OrdersService {
       }
       return { order: await requireOrder(tx, orderId), payment: toPayment(row), replayed: false };
     });
-    this.events.emit({ type: 'table.changed', tableId: head.tableId });
+    this.events.emit(
+      { type: 'order.changed', orderId },
+      { type: 'table.changed', tableId: head.tableId },
+    );
     return result;
   }
 }
