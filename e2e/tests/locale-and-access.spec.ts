@@ -141,7 +141,9 @@ test('manager report: the period lives in the URL (survives a reload), presets w
     await expect(manager.page.getByLabel('From')).toHaveValue(iso(from));
     await expect(manager.page.getByTestId('report-total')).toHaveText(total ?? '');
 
+    const before = manager.page.url();
     await manager.page.getByRole('button', { name: '7 days' }).click();
+    await expect(manager.page).not.toHaveURL(before); // the URL really changed (not the old period's)
     await expect(manager.page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
     const sevenUrl = manager.page.url();
     await manager.page.reload();

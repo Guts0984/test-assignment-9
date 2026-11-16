@@ -29,7 +29,11 @@ export const dayOf = (instant: Date, tz: string): string => {
  * past midnight stays one day (and one run of check numbers). At 01:30 with startHour 4 it is still "yesterday".
  */
 export const businessDayOf = (instant: Date, tz: string, startHour: number): string =>
-  dayOf(new Date(instant.getTime() - startHour * 3_600_000), tz);
+  // Wall-clock rule, not "minus N real hours": on a clock-change day an hour is missing or repeated, and
+  // subtracting real hours would move the boundary by an hour.
+  (partsOf(instant, tz).hour ?? 0) < startHour
+    ? addDays(dayOf(instant, tz), -1)
+    : dayOf(instant, tz);
 
 /** Offset (ms) of `tz` from UTC at the given instant. */
 const offsetMs = (instant: Date, tz: string): number => {

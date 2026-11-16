@@ -145,3 +145,30 @@ test('/orders/foo is a plain "not found" page', async ({ browser }) => {
     await waiter.context.close();
   }
 });
+
+test('a second device showing the same check sees an added item live, without a reload', async ({
+  browser,
+}) => {
+  const a = await asRole(browser, 'waiter1');
+  const b = await asRole(browser, 'waiter1');
+  try {
+    await openCheck(a.page, 2);
+    await b.page.goto(a.page.url());
+    await expect(b.page.getByRole('status').filter({ hasText: 'Live' })).toBeVisible();
+    await addDish(a.page, 'Cheesecake'); // a draft: only `order.changed` tells the other device
+    await expect(itemRow(b.page, 'Cheesecake')).toBeVisible();
+    // leave the check empty and closed
+    await itemRow(a.page, 'Cheesecake')
+      .getByRole('button', { name: /Remove/ })
+      .click();
+    await expect(itemRow(b.page, 'Cheesecake')).toHaveCount(0); // removal of a draft is live too
+    await a.page.getByRole('button', { name: 'Close empty check' }).click();
+    await a.page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Close check', exact: true })
+      .click();
+  } finally {
+    await a.context.close();
+    await b.context.close();
+  }
+});

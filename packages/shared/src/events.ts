@@ -17,3 +17,8 @@ export const AppEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('menu.changed') }),
 ]);
 export type AppEvent = z.infer<typeof AppEvent>;
+
+/** Every event type the server can send, taken from the schema above (so a new event can never be left out of a list). */
+export const appEventTypes: readonly AppEvent['type'][] = AppEvent.options.map(
+  (o) => o.shape.type.value,
+);

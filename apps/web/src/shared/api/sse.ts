@@ -1,4 +1,4 @@
-import { AppEvent } from '@app/shared';
+import { AppEvent, appEventTypes } from '@app/shared';
 import { API_BASE } from '@/shared/config';
 
 export type SseHandlers = {
@@ -9,8 +9,6 @@ export type SseHandlers = {
   /** The stream cannot be reopened because the session is gone (401): stop trying, the user must sign in. */
   onUnauthorized?: () => void;
 };
-
-const EVENT_TYPES = ['item.changed', 'stoplist.changed', 'table.changed', 'menu.changed'] as const;
 
 const defaultSessionValid = async (): Promise<boolean> => {
   try {
@@ -54,7 +52,7 @@ export const subscribeToEvents = (
   const connect = () => {
     const s = make(`${API_BASE}/events`);
     source = s;
-    for (const type of EVENT_TYPES)
+    for (const type of appEventTypes)
       s.addEventListener(type, (e) => parse(e as MessageEvent<string>));
     s.addEventListener('ready', () => {
       delay = RETRY_MIN_MS;

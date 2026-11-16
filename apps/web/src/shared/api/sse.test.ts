@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { appEventTypes } from '@app/shared';
 import { subscribeToEvents } from './sse';
 import { keysToInvalidate } from '../lib/event-keys';
 
@@ -128,6 +129,22 @@ describe('subscribeToEvents', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it('listens for EVERY event type the server can send (taken from the shared schema)', () => {
+    const src = makeFakeSource();
+    subscribeToEvents(
+      { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() },
+      () => src as unknown as EventSource,
+    );
+    for (const type of appEventTypes) expect(src.listeners.has(type), type).toBe(true);
+    expect(appEventTypes).toContain('order.changed');
+  });
+  it('an order.changed frame reaches the handler', () => {
+    const src = makeFakeSource();
+    const h = { onEvent: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() };
+    subscribeToEvents(h, () => src as unknown as EventSource);
+    src.emit('order.changed', { type: 'order.changed', orderId: ID });
+    expect(h.onEvent).toHaveBeenCalledWith({ type: 'order.changed', orderId: ID });
   });
   it('ignores malformed or unknown payloads instead of crashing', () => {
     const src = makeFakeSource();

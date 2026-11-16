@@ -195,7 +195,7 @@ const RevenueDashboardBody = ({ today }: { today: string }) => {
                   </thead>
                   <tbody>
                     {report.topDishes.map((d, i) => (
-                      <tr key={`${d.dishId}|${d.name}`} className="border-t">
+                      <tr key={d.dishId} className="border-t">
                         <td className="px-3 py-2">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{d.name}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{d.quantity}</td>

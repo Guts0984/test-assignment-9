@@ -516,6 +516,31 @@ describe('the report shows names as they were when sold', () => {
       .map((x) => x.name);
     expect(names).toEqual(['Old name']);
   });
+
+  it('a renamed dish stays ONE row in the top list, shown under its last sold name', async () => {
+    const d = (
+      await s.app.db
+        .insert(dishes)
+        .values({ name: 'Before', category: 'Test', price: 6543, station: 'kitchen' })
+        .returning()
+    )[0]!;
+    const sell = async () => {
+      let o = await open(s.waiter1, table(), 1);
+      o = await add(s.waiter1, o, d.id);
+      o = await makeServed(s.waiter1, s.cook, await send(s.waiter1, o));
+      expect((await pay(o, o.remaining)).status).toBe(201);
+    };
+    await sell();
+    await s.manager.patch(`/dishes/${d.id}`, { name: 'After' });
+    await sell();
+    const day = businessDayOf(new Date(), 'Europe/Kyiv', 4);
+    const rep = (await s.manager.get(`/reports/revenue?from=${day}&to=${day}`)).body;
+    const rows = (rep.topDishes as { dishId: string; name: string; quantity: number }[]).filter(
+      (x) => x.dishId === d.id,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: 'After', quantity: 2 });
+  });
 });
 
 describe('an open stream does not outlive its session', () => {
